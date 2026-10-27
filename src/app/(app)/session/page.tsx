@@ -1,6 +1,7 @@
 "use client";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { use, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { fmtDate, weekdayOf } from "@/lib/dates";
 import { WEEKDAYS, type ClassRow, type Session, type SessionRecord, type Student, type Subject } from "@/lib/types";
@@ -11,8 +12,16 @@ const blank = (session_id: string, student_id: string): SessionRecord => ({
   session_id, student_id, participation: 0, disruption: 0, late: false, absence: null, homework: null, note: null,
 });
 
-export default function SessionPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params);
+export default function SessionPage() {
+  return <Suspense fallback={null}><Inner /></Suspense>;
+}
+
+function Inner() {
+  const id = useSearchParams().get("id") ?? "";
+  return <SessionPageView key={id} id={id} />;
+}
+
+function SessionPageView({ id }: { id: string }) {
   const { settings } = useSettings();
   const L = settings.labels;
   const toast = useToast();
@@ -159,7 +168,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   return (
     <div>
       <div className="mb-2 text-sm text-zinc-500">
-        <Link href="/" className="hover:underline">الصفوف</Link> ‹ <Link href={`/classes/${cls.id}`} className="hover:underline">{cls.name}</Link> ‹ <Link href={`/subjects/${subject.id}`} className="hover:underline">{subject.name}</Link>
+        <Link href="/" className="hover:underline">الصفوف</Link> ‹ <Link href={`/class?id=${cls.id}`} className="hover:underline">{cls.name}</Link> ‹ <Link href={`/subject?id=${subject.id}`} className="hover:underline">{subject.name}</Link>
       </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
@@ -168,8 +177,8 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
         <button onClick={() => updateSession({ semester: session.semester === 1 ? 2 : 1 })} className="text-xs text-zinc-500 hover:underline">تغيير الفصل</button>
         <div className="flex-1" />
         <span className={cx("text-xs", pending ? "text-amber-600" : "text-green-600")}>{pending ? "جارٍ الحفظ…" : "✓ محفوظ"}</span>
-        {siblings.prev && <Link href={`/sessions/${siblings.prev}`}><Button size="sm" variant="secondary">→ السابقة</Button></Link>}
-        {siblings.next && <Link href={`/sessions/${siblings.next}`}><Button size="sm" variant="secondary">التالية ←</Button></Link>}
+        {siblings.prev && <Link href={`/session?id=${siblings.prev}`}><Button size="sm" variant="secondary">→ السابقة</Button></Link>}
+        {siblings.next && <Link href={`/session?id=${siblings.next}`}><Button size="sm" variant="secondary">التالية ←</Button></Link>}
       </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-2">

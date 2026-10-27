@@ -1,6 +1,8 @@
 "use client";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { use, useCallback, useEffect, useState } from "react";
+import { absoluteUrl } from "@/lib/paths";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { loadClassBasics, loadSubjectGrades, type SubjectGrades } from "@/lib/class-data";
 import { exportCsv, exportXlsx } from "@/lib/excel";
@@ -13,8 +15,16 @@ import { Button, Card, Empty, Field, Input, Modal, PageHeader, Spinner, Tabs, co
 
 type Tab = "students" | "subjects" | "summary";
 
-export default function ClassPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params);
+export default function ClassPage() {
+  return <Suspense fallback={null}><Inner /></Suspense>;
+}
+
+function Inner() {
+  const id = useSearchParams().get("id") ?? "";
+  return <ClassPageView key={id} id={id} />;
+}
+
+function ClassPageView({ id }: { id: string }) {
   const [tab, setTab] = useState<Tab>("students");
   const [cls, setCls] = useState<ClassRow | null>(null);
   const [students, setStudents] = useState<Student[] | null>(null);
@@ -61,7 +71,7 @@ function StudentsTab({ cls, students, reload }: { cls: ClassRow; students: Stude
     supabase().from("classes").select("*").is("deleted_at", null).neq("id", cls.id).then(({ data }) => setClasses((data ?? []) as ClassRow[]));
   }, [cls.id]);
 
-  const link = (s: Student) => `${location.origin}/s/${s.share_token}`;
+  const link = (s: Student) => absoluteUrl(`/s/?t=${s.share_token}`);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -148,7 +158,7 @@ function StudentsTab({ cls, students, reload }: { cls: ClassRow; students: Stude
                       {s.share_enabled ? (
                         <>
                           <Button size="sm" variant="secondary" onClick={() => copy(s)}>نسخ</Button>
-                          <a href={`/s/${s.share_token}`} target="_blank" className="rounded-lg px-2.5 py-1 text-sm text-brand-600 hover:bg-brand-50 dark:hover:bg-zinc-800">فتح</a>
+                          <a href={link(s)} target="_blank" rel="noreferrer" className="rounded-lg px-2.5 py-1 text-sm text-brand-600 hover:bg-brand-50 dark:hover:bg-zinc-800">فتح</a>
                           <Button size="sm" variant="ghost" onClick={() => confirmAction("سيتوقف الرابط القديم عن العمل. متابعة؟") && update(s, { share_token: crypto.randomUUID() }, "تم إنشاء رابط جديد")}>تجديد</Button>
                           <Button size="sm" variant="ghost" onClick={() => update(s, { share_enabled: false }, "تم تعطيل الرابط")}>تعطيل</Button>
                         </>
@@ -243,7 +253,7 @@ function SubjectsTab({ classId, subjects, reload }: { classId: string; subjects:
           {subjects.map((s) => (
             <Card key={s.id} className="flex items-center gap-3">
               <span className="h-10 w-1.5 rounded-full" style={{ background: s.color }} />
-              <Link href={`/subjects/${s.id}`} className="flex-1 hover:text-brand-600">
+              <Link href={`/subject?id=${s.id}`} className="flex-1 hover:text-brand-600">
                 <div className="font-semibold">{s.name}</div>
                 <div className="text-xs text-zinc-500">الوزن في المعدل العام: {s.weight}</div>
               </Link>
@@ -311,7 +321,7 @@ function SummaryTab({ cls, students, subjects }: { cls: ClassRow; students: Stud
           <thead>
             <tr>
               <th>#</th><th className="text-right">الاسم</th>
-              {subjects.map((s) => <th key={s.id}><Link href={`/subjects/${s.id}`} className="hover:underline">{s.name}</Link></th>)}
+              {subjects.map((s) => <th key={s.id}><Link href={`/subject?id=${s.id}`} className="hover:underline">{s.name}</Link></th>)}
               <th>المعدل العام</th><th>التقدير</th>
             </tr>
           </thead>

@@ -1,6 +1,5 @@
 "use client";
-import { createBrowserClient } from "@supabase/ssr";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 let client: SupabaseClient | null = null;
 
@@ -11,7 +10,7 @@ export function supabase(): SupabaseClient {
     if (!url || !key) {
       throw new Error("ضع NEXT_PUBLIC_SUPABASE_URL و NEXT_PUBLIC_SUPABASE_ANON_KEY في ملف .env.local");
     }
-    client = createBrowserClient(url, key);
+    client = createClient(url, key, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
   }
   return client;
 }

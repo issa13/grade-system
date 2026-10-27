@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import { SettingsProvider, useSettings } from "@/components/settings-provider";
 import { supabase } from "@/lib/supabase/client";
 import { cx } from "@/components/ui";
@@ -20,13 +20,12 @@ function Shell({ children }: { children: React.ReactNode }) {
 
   async function logout() {
     await supabase().auth.signOut();
-    window.location.href = "/login";
   }
 
   const nav = (
     <nav className="flex flex-col gap-1">
       {NAV.map((n) => {
-        const active = n.href === "/" ? path === "/" || path.startsWith("/classes") || path.startsWith("/subjects") || path.startsWith("/sessions") : path.startsWith(n.href);
+        const active = n.href === "/" ? path === "/" || path.startsWith("/class") || path.startsWith("/subject") || path.startsWith("/session") : path.startsWith(n.href);
         return (
           <Link key={n.href} href={n.href} onClick={() => setOpen(false)}
             className={cx("flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium",
@@ -66,10 +65,31 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** يمنع الدخول إلى صفحات الأستاذ بدون تسجيل دخول (الحماية الفعلية للبيانات عبر RLS في قاعدة البيانات). */
+function AuthGuard({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
+  const [ok, setOk] = useState(false);
+  useEffect(() => {
+    const sb = supabase();
+    sb.auth.getSession().then(({ data }) => {
+      if (data.session) setOk(true);
+      else router.replace("/login");
+    });
+    const { data: sub } = sb.auth.onAuthStateChange((event, session) => {
+      if (event === "SIGNED_OUT" || !session) router.replace("/login");
+    });
+    return () => sub.subscription.unsubscribe();
+  }, [router]);
+  if (!ok) return <div className="flex min-h-screen items-center justify-center"><div className="h-6 w-6 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" /></div>;
+  return <>{children}</>;
+}
+
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
-    <SettingsProvider>
-      <Shell>{children}</Shell>
-    </SettingsProvider>
+    <AuthGuard>
+      <SettingsProvider>
+        <Shell>{children}</Shell>
+      </SettingsProvider>
+    </AuthGuard>
   );
 }

@@ -2,7 +2,7 @@
 
 موقع للأستاذ لإدارة الصفوف والطلاب والمواد، وتسجيل الحصص (مشاركة، شغب، تأخير، غياب، وظائف)، وإدخال العلامات بنفس شكل كشف الإكسل (الفتري، الفصل، السعي، النصف، النهائي من 20)، ومشاركة العلامات مع كل طالب برابط خاص يتحدّث مباشرة.
 
-التقنيات: Next.js + Supabase (قاعدة بيانات وتسجيل دخول) + Tailwind. كلها مجانية.
+التقنيات: Next.js (موقع ثابت) + Supabase (قاعدة بيانات وتسجيل دخول) + Tailwind، والنشر على GitHub Pages. كلها مجانية.
 
 ---
 
@@ -15,8 +15,8 @@
    - `Project URL`
    - `anon public key`
 
-### 2) تجهيز الملفات على جهازك
-1. ثبّت **Node.js** (نسخة 20 أو أحدث) من https://nodejs.org
+### 2) التشغيل على جهازك (للتجربة)
+1. ثبّت آخر نسخة من **Node.js** من https://nodejs.org
 2. داخل مجلد المشروع، انسخ الملف `.env.example` إلى ملف جديد اسمه `.env.local` وضع فيه القيمتين:
    ```
    NEXT_PUBLIC_SUPABASE_URL=https://xxxx.supabase.co
@@ -31,13 +31,23 @@
 
 > **مهم للأمان:** بعد إنشاء حسابك، من Supabase افتح **Authentication ← Sign In / Providers** وأوقف **Allow new users to sign up** حتى لا يستطيع أحد غيرك إنشاء حساب.
 
-### 3) نشر الموقع على الإنترنت (مجاني)
-1. ارفع المجلد إلى مستودع جديد على **GitHub** (ملف `.env.local` لن يُرفع، وهذا مقصود).
-2. ادخل إلى https://vercel.com بحساب GitHub ← **Add New Project** ← اختر المستودع.
-3. في **Environment Variables** أضف نفس القيمتين `NEXT_PUBLIC_SUPABASE_URL` و `NEXT_PUBLIC_SUPABASE_ANON_KEY` ← **Deploy**.
-4. في Supabase افتح **Authentication ← URL Configuration** وضع رابط موقعك على Vercel في **Site URL** (حتى تعمل رسائل تأكيد البريد وتغيير كلمة المرور).
+### 3) النشر على الإنترنت عبر GitHub Pages (مجاني، بدون Vercel)
+الموقع مبني كموقع ثابت (Static)، لذلك يكفي GitHub وحده. الملف `.github/workflows/deploy.yml` يبني الموقع وينشره تلقائياً.
 
-كل `git push` لاحقاً ينشر التحديث تلقائياً.
+1. أنشئ مستودعاً جديداً على **GitHub** (مثلاً `grade-system`). اجعله **Public**، لأن GitHub Pages المجاني يتطلب مستودعاً عاماً. لا توجد أسرار في الكود: ملف `.env.local` لا يُرفع، ومفتاح `anon` مصمَّم ليكون علنياً، والبيانات محمية بـ RLS.
+2. ارفع المجلد إلى الفرع `main`.
+3. في المستودع: **Settings ← Pages ← Build and deployment ← Source** واختر **GitHub Actions**.
+4. في المستودع: **Settings ← Secrets and variables ← Actions ← تبويب Variables ← New repository variable** وأضف:
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+5. افتح تبويب **Actions** ← **Deploy to GitHub Pages** ← **Run workflow** (أو اعمل أي push). بعد دقيقتين يصبح الموقع على:
+   `https://اسم-المستخدم.github.io/grade-system/`
+6. في Supabase افتح **Authentication ← URL Configuration**:
+   - **Site URL**: رابط موقعك أعلاه
+   - **Redirect URLs**: أضف `https://اسم-المستخدم.github.io/grade-system/**`
+   (حتى تعمل رسائل تأكيد البريد وتغيير كلمة المرور).
+
+كل `git push` إلى `main` ينشر التحديث تلقائياً.
 
 > ملاحظة: مشاريع Supabase المجانية تتوقف مؤقتاً إذا لم تُستعمل لمدة أسبوع. يكفي فتح لوحة Supabase والضغط على **Restore**. ننصح بتصدير نسخة احتياطية دورياً من الإعدادات ← البيانات.
 
@@ -69,5 +79,5 @@
 
 ## للمطوّرين
 - `npm test` — اختبارات محرك حساب العلامات (`src/lib/grades.test.ts`)
-- `npm run build` — بناء نسخة الإنتاج
+- `npm run build` — بناء الموقع الثابت في المجلد `out/`
 - مخطط قاعدة البيانات: `supabase/schema.sql` (آمن لإعادة التشغيل عند التحديث)

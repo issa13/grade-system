@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { datesBetween, fmtDate, semesterFor, toISO, today, weekdayOf } from "@/lib/dates";
@@ -11,6 +12,7 @@ import { Button, Card, Empty, Field, Input, Modal, Select, Spinner, cx, useToast
 export function SessionsTab({ subject, students }: { subject: Subject; students: Student[] }) {
   const { settings } = useSettings();
   const toast = useToast();
+  const router = useRouter();
   const [slots, setSlots] = useState<Slot[]>([]);
   const [sessions, setSessions] = useState<(Session & { session_records: { count: number }[] })[] | null>(null);
   const [slotEdit, setSlotEdit] = useState<Partial<Slot> | null>(null);
@@ -67,7 +69,7 @@ export function SessionsTab({ subject, students }: { subject: Subject; students:
     const { data, error } = await supabase().from("sessions")
       .insert({ subject_id: subject.id, date: extra, semester: semesterFor(extra, settings) }).select("id").single();
     if (error) return toast({ text: error.message, kind: "err" });
-    window.location.href = `/sessions/${data.id}`;
+    router.push(`/session?id=${data.id}`);
   }
 
   async function toggleCancel(s: Session) {
@@ -121,7 +123,7 @@ export function SessionsTab({ subject, students }: { subject: Subject; students:
       {todays.length > 0 && (
         <Card className="flex flex-wrap items-center gap-3 border-brand-500 bg-brand-50 dark:bg-brand-700/20">
           <span className="font-semibold">حصة اليوم</span>
-          {todays.map((s) => <Link key={s.id} href={`/sessions/${s.id}`}><Button size="sm">تسجيل الحصة ←</Button></Link>)}
+          {todays.map((s) => <Link key={s.id} href={`/session?id=${s.id}`}><Button size="sm">تسجيل الحصة ←</Button></Link>)}
         </Card>
       )}
 
@@ -159,7 +161,7 @@ export function SessionsTab({ subject, students }: { subject: Subject; students:
           <Card className="divide-y divide-zinc-100 p-0 dark:divide-zinc-800">
             {shown.map((s) => (
               <div key={s.id} className={cx("flex items-center gap-3 px-4 py-2.5", s.cancelled && "opacity-50", s.date === t && "bg-brand-50/50 dark:bg-brand-700/10")}>
-                <Link href={`/sessions/${s.id}`} className="flex flex-1 items-center gap-3 hover:text-brand-600">
+                <Link href={`/session?id=${s.id}`} className="flex flex-1 items-center gap-3 hover:text-brand-600">
                   <span className="w-20 text-sm font-medium tabular-nums">{fmtDate(s.date)}</span>
                   <span className="w-16 text-sm text-zinc-500">{WEEKDAYS[weekdayOf(s.date)]}</span>
                   <span className="text-xs text-zinc-500">ف{s.semester}</span>

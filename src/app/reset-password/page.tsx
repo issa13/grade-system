@@ -1,16 +1,18 @@
 "use client";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { Button, Card, Field, Input } from "@/components/ui";
 
 export default function ResetPassword() {
   const [pw, setPw] = useState("");
   const [msg, setMsg] = useState("");
+  const router = useRouter();
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     const { error } = await supabase().auth.updateUser({ password: pw });
     if (error) setMsg(error.message);
-    else window.location.href = "/";
+    else router.replace("/");
   }
   return (
     <main className="flex min-h-screen items-center justify-center p-4">

@@ -1,5 +1,7 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { absoluteUrl } from "@/lib/paths";
 import { supabase } from "@/lib/supabase/client";
 import { Button, Card, Field, Input } from "@/components/ui";
 
@@ -9,6 +11,11 @@ export default function LoginPage() {
   const [mode, setMode] = useState<"login" | "signup" | "forgot">("login");
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
+  const router = useRouter();
+
+  useEffect(() => {
+    supabase().auth.getSession().then(({ data }) => { if (data.session) router.replace("/"); });
+  }, [router]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -18,12 +25,12 @@ export default function LoginPage() {
     if (mode === "login") {
       const { error } = await sb.auth.signInWithPassword({ email, password });
       if (error) setMsg({ text: "البريد أو كلمة المرور غير صحيحة", ok: false });
-      else window.location.href = "/";
+      else router.replace("/");
     } else if (mode === "signup") {
-      const { error } = await sb.auth.signUp({ email, password, options: { emailRedirectTo: `${location.origin}/` } });
+      const { error } = await sb.auth.signUp({ email, password, options: { emailRedirectTo: absoluteUrl("/") } });
       setMsg(error ? { text: error.message, ok: false } : { text: "تم إنشاء الحساب. افتح بريدك لتأكيده ثم سجّل الدخول.", ok: true });
     } else {
-      const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: `${location.origin}/reset-password` });
+      const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: absoluteUrl("/reset-password/") });
       setMsg(error ? { text: error.message, ok: false } : { text: "أرسلنا رابط تغيير كلمة المرور إلى بريدك.", ok: true });
     }
     setBusy(false);

@@ -1,5 +1,6 @@
 "use client";
-import { use, useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { aggregateFromReport } from "@/lib/behavior";
 import { bandFor, computeRow, fmt, overallAverage, type BehaviorAgg, type Entries, type GradeRow } from "@/lib/grades";
@@ -15,8 +16,16 @@ type Report = {
   assignments: { subject_id: string; semester: 1 | 2; done: number; late: number; missing: number }[];
 };
 
-export default function StudentReport({ params }: { params: Promise<{ token: string }> }) {
-  const { token } = use(params);
+export default function StudentReport() {
+  return <Suspense fallback={null}><Inner /></Suspense>;
+}
+
+function Inner() {
+  const token = useSearchParams().get("t") ?? "";
+  return <StudentReportView key={token} token={token} />;
+}
+
+function StudentReportView({ token }: { token: string }) {
   const [rep, setRep] = useState<Report | null | undefined>(undefined);
   const [updated, setUpdated] = useState<Date | null>(null);
   const [flash, setFlash] = useState(false);

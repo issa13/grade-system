@@ -1,6 +1,7 @@
 "use client";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { use, useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 import type { ClassRow, Student, Subject } from "@/lib/types";
 import { GradeGrid } from "@/components/grade-grid";
@@ -10,8 +11,16 @@ import { Empty, PageHeader, Spinner, Tabs } from "@/components/ui";
 
 type Tab = "grades" | "sessions" | "assignments";
 
-export default function SubjectPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params);
+export default function SubjectPage() {
+  return <Suspense fallback={null}><Inner /></Suspense>;
+}
+
+function Inner() {
+  const id = useSearchParams().get("id") ?? "";
+  return <SubjectPageView key={id} id={id} />;
+}
+
+function SubjectPageView({ id }: { id: string }) {
   const [tab, setTab] = useState<Tab>("sessions");
   const [subject, setSubject] = useState<Subject | null | undefined>(undefined);
   const [cls, setCls] = useState<ClassRow | null>(null);
@@ -43,7 +52,7 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
   return (
     <div>
       <div className="mb-2 text-sm text-zinc-500">
-        <Link href="/" className="hover:underline">الصفوف</Link> ‹ <Link href={`/classes/${cls.id}`} className="hover:underline">{cls.name}</Link> ‹ {subject.name}
+        <Link href="/" className="hover:underline">الصفوف</Link> ‹ <Link href={`/class?id=${cls.id}`} className="hover:underline">{cls.name}</Link> ‹ {subject.name}
       </div>
       <PageHeader title={<span className="flex items-center gap-2"><span className="h-6 w-1.5 rounded-full" style={{ background: subject.color }} />{subject.name}</span>} sub={`${cls.name} · ${students.length} طالب`} />
       <Tabs<Tab> value={tab} onChange={change} tabs={[

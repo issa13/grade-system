@@ -73,7 +73,7 @@ export default function ClassesPage() {
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {visible.map((c) => (
             <Card key={c.id} className="flex flex-col">
-              <Link href={`/classes/${c.id}`} className="group flex-1">
+              <Link href={`/class?id=${c.id}`} className="group flex-1">
                 <div className="text-lg font-semibold group-hover:text-brand-600">{c.name}</div>
                 <div className="text-sm text-zinc-500">{c.school_year}</div>
                 <div className="mt-3 flex gap-4 text-sm">
