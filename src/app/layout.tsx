@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { ToastProvider } from "@/components/ui";
+import { ConfigCheck } from "@/components/config-check";
 
 export const metadata: Metadata = {
   title: "نظام إدارة العلامات",
@@ -20,7 +21,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
       <body className="min-h-screen font-sans antialiased">
-        <ToastProvider>{children}</ToastProvider>
+        <ToastProvider><ConfigCheck>{children}</ConfigCheck></ToastProvider>
       </body>
     </html>
   );
