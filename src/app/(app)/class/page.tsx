@@ -136,12 +136,12 @@ function StudentsTab({ cls, students, reload }: { cls: ClassRow; students: Stude
       </div>
 
       {students.length === 0 ? <Empty>لا يوجد طلاب. أضف طالباً أو استورد ملف Excel.</Empty> : (
-        <Card className="overflow-x-auto p-0">
-          <table className="w-full text-sm">
-            <thead className="bg-zinc-50 text-zinc-500 dark:bg-zinc-800/50">
+        <Card className="table-scroll p-0">
+          <table className="sheet w-full text-sm">
+            <thead>
               <tr>
-                <th className="p-3 text-right font-medium">#</th>
-                <th className="p-3 text-right font-medium">الاسم</th>
+                <th className="sticky-c1 p-3 text-right font-medium">#</th>
+                <th className="sticky-c2 p-3 text-right font-medium">الاسم</th>
                 <th className="p-3 text-right font-medium">الرقم</th>
                 <th className="p-3 text-right font-medium">رابط العلامات</th>
                 <th className="p-3 text-right font-medium"></th>
@@ -149,9 +149,9 @@ function StudentsTab({ cls, students, reload }: { cls: ClassRow; students: Stude
             </thead>
             <tbody>
               {shown.map((s, i) => (
-                <tr key={s.id} className={cx("border-t border-zinc-100 dark:border-zinc-800", !s.active && "opacity-50")}>
-                  <td className="p-3 text-zinc-400">{i + 1}</td>
-                  <td className="p-3 font-medium">{s.full_name}{!s.active && <span className="ms-2 text-xs text-zinc-500">(غير فعّال)</span>}</td>
+                <tr key={s.id} className={cx(!s.active && "text-zinc-400")}>
+                  <td className="sticky-c1 p-3 text-zinc-400">{i + 1}</td>
+                  <td className="sticky-c2 whitespace-nowrap p-3 font-medium">{s.full_name}{!s.active && <span className="ms-2 text-xs text-zinc-500">(غير فعّال)</span>}</td>
                   <td className="p-3">{s.student_number}</td>
                   <td className="p-3">
                     <div className="flex flex-wrap gap-1">
@@ -282,17 +282,17 @@ function SubjectsTab({ classId, subjects, reload }: { classId: string; subjects:
 
 // ======================= الملخص =======================
 function SummaryTab({ cls, students, subjects }: { cls: ClassRow; students: Student[]; subjects: Subject[] }) {
-  const { settings, loaded } = useSettings();
+  const { settings, loaded, subjectWeights } = useSettings();
   const [grades, setGrades] = useState<Record<string, SubjectGrades> | null>(null);
 
   useEffect(() => {
     if (!loaded) return;
     (async () => {
       const out: Record<string, SubjectGrades> = {};
-      await Promise.all(subjects.map(async (s) => { out[s.id] = await loadSubjectGrades(s.id, students, settings); }));
+      await Promise.all(subjects.map(async (s) => { out[s.id] = await loadSubjectGrades(s.id, students, settings, subjectWeights[s.id]); }));
       setGrades(out);
     })();
-  }, [subjects, students, settings, loaded]);
+  }, [subjects, students, settings, loaded, subjectWeights]);
 
   if (!grades) return <Spinner />;
   if (!subjects.length) return <Empty>أضف مواد أولاً.</Empty>;
@@ -316,11 +316,11 @@ function SummaryTab({ cls, students, subjects }: { cls: ClassRow; students: Stud
         <Button variant="secondary" onClick={() => exportAll("csv")}>تصدير CSV</Button>
         <Button onClick={() => exportAll("xlsx")}>تصدير Excel (كل المواد)</Button>
       </div>
-      <Card className="overflow-x-auto p-0">
-        <table className="sheet w-full border-collapse text-sm">
+      <Card className="table-scroll p-0">
+        <table className="sheet w-full text-sm">
           <thead>
             <tr>
-              <th>#</th><th className="text-right">الاسم</th>
+              <th className="sticky-c1">#</th><th className="sticky-c2 text-right">الاسم</th>
               {subjects.map((s) => <th key={s.id}><Link href={`/subject?id=${s.id}`} className="hover:underline">{s.name}</Link></th>)}
               <th>المعدل العام</th><th>التقدير</th>
             </tr>
@@ -331,8 +331,8 @@ function SummaryTab({ cls, students, subjects }: { cls: ClassRow; students: Stud
               const b = bandFor(o, settings);
               return (
                 <tr key={st.id}>
-                  <td className="px-2 text-center text-zinc-400">{i + 1}</td>
-                  <td className="whitespace-nowrap px-2 py-1.5">{st.full_name}</td>
+                  <td className="sticky-c1 px-2 text-center text-zinc-400">{i + 1}</td>
+                  <td className="sticky-c2 whitespace-nowrap px-2 py-1.5">{st.full_name}</td>
                   {subjects.map((s) => {
                     const f = grades[s.id]?.rows[st.id]?.final ?? null;
                     return <td key={s.id} className={cx("px-2 text-center tabular-nums", typeof f === "number" && f < settings.grading.pass_mark && "text-red-600")}>{fmt(f)}</td>;

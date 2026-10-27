@@ -5,6 +5,7 @@ export const COMPONENTS = ["p1", "p2", "m1", "pr1", "p3", "p4", "m2", "pr2"] as 
 export type Component = (typeof COMPONENTS)[number];
 
 export type Band = { min: number; label: string; color: string };
+type RawOverride = { grading?: Record<string, unknown>; behavior?: Record<string, unknown> };
 
 export const DEFAULT_SETTINGS = {
   profile: {
@@ -24,11 +25,11 @@ export const DEFAULT_SETTINGS = {
   },
   grading: {
     scale: 20, // العلامة النهائية من 20
-    max_periodic: 20, // الفتري من 20
-    max_midterm: 40, // الفصل من 40
+    max_periodic: 20, // الفصل من 20
+    max_midterm: 20, // النصف من 20
     max_progress: 20, // السعي من 20
-    periodic_weight: 15, // وزن معدل الفتريين داخل النصف
-    midterm_weight: 25, // وزن الفصل داخل النصف
+    periodic_weight: 15, // وزن معدل الفصلين داخل معدل النصف
+    midterm_weight: 25, // وزن النصف داخل معدل النصف
     sem1_weight: 0.4,
     sem2_weight: 0.4,
     progress1_weight: 0.1,
@@ -37,7 +38,7 @@ export const DEFAULT_SETTINGS = {
     rounding: "round" as "round" | "floor" | "ceil",
     pass_mark: 10,
     missing_policy: "nc" as "nc" | "zero", // nc = إظهار NC عند نقص علامة، zero = اعتبارها صفراً
-    progress_mode: "manual" as "manual" | "behavior", // السعي: يدوي أو محسوب من السلوك
+    progress_mode: "behavior" as "manual" | "behavior", // السعي: يدوي أو محسوب من السلوك
     bands: [
       { min: 16, label: "ممتاز", color: "#15803d" },
       { min: 14, label: "جيد جداً", color: "#1f7a68" },
@@ -71,17 +72,19 @@ export const DEFAULT_SETTINGS = {
     show_band: true,
   },
   labels: {
-    p1: "الفتري 1",
-    p2: "الفتري 2",
-    m1: "الفصل 1",
+    p1: "الفصل 1",
+    p2: "الفصل 2",
+    m1: "النصف 1",
     pr1: "السعي 1",
-    sem1: "النصف 1",
-    p3: "الفتري 3",
-    p4: "الفتري 4",
-    m2: "الفصل 2",
+    sem1: "معدل النصف 1",
+    p3: "الفصل 3",
+    p4: "الفصل 4",
+    m2: "النصف 2",
     pr2: "السعي 2",
-    sem2: "النصف 2",
+    sem2: "معدل النصف 2",
     final: "النهائي",
+    term1: "النصف الأول",
+    term2: "النصف الثاني",
     participation: "مشاركة",
     disruption: "شغب",
     late: "تأخير",
@@ -96,12 +99,24 @@ export const DEFAULT_SETTINGS = {
   data: {
     trash_retention_days: 30,
   },
+  // إعدادات محفوظة لنصف معيّن عندما يختار الأستاذ تطبيق التغيير على النصف الحالي فقط.
+  // المفتاح "1" أو "2"، والقيمة = إعدادات ذلك النصف قبل التغيير.
+  semester_overrides: {} as Record<string, RawOverride>,
 };
 
 export type Settings = typeof DEFAULT_SETTINGS;
 export type SettingsKey = keyof Settings;
+export type EditableKey = Exclude<SettingsKey, "semester_overrides">;
+export type Grading = Settings["grading"];
+export type Behavior = Settings["behavior"];
+export type SemesterOverride = { grading?: Partial<Grading>; behavior?: Partial<Behavior> };
 
-export const SECTION_TITLES: Record<SettingsKey, string> = {
+/** الأوزان التي يمكن تعديلها لكل مادة على حدة (من كشف العلامات). */
+export const WEIGHT_KEYS = ["periodic_weight", "midterm_weight", "sem1_weight", "sem2_weight", "progress1_weight", "progress2_weight"] as const;
+export type SubjectWeights = Partial<Record<(typeof WEIGHT_KEYS)[number], number>>;
+export const subjectKey = (subjectId: string) => `subject:${subjectId}`;
+
+export const SECTION_TITLES: Record<EditableKey, string> = {
   profile: "الملف الشخصي",
   year: "السنة الدراسية",
   grading: "حساب العلامات",
@@ -112,6 +127,30 @@ export const SECTION_TITLES: Record<SettingsKey, string> = {
   data: "البيانات",
 };
 
+// التسميات الافتراضية القديمة: إذا كانت محفوظة كما هي، نستبدلها بالجديدة تلقائياً.
+const OLD_LABEL_DEFAULTS: Record<string, string> = {
+  p1: "الفتري 1", p2: "الفتري 2", m1: "الفصل 1", sem1: "النصف 1",
+  p3: "الفتري 3", p4: "الفتري 4", m2: "الفصل 2", sem2: "النصف 2",
+};
+
+/** الإعدادات الفعلية لكل نصف ولحساب النهائي، مع أوزان المادة الخاصة إن وُجدت. */
+export type Effective = { sem: { 1: Settings; 2: Settings }; final: Settings };
+
+export function effectiveSettings(s: Settings, subject?: SubjectWeights | null): Effective {
+  const sub: SubjectWeights = {};
+  for (const k of WEIGHT_KEYS) {
+    const v = subject?.[k];
+    if (typeof v === "number" && !Number.isNaN(v)) sub[k] = v;
+  }
+  const mk = (ov?: SemesterOverride): Settings => ({
+    ...s,
+    grading: { ...s.grading, ...(ov?.grading ?? {}), ...sub },
+    behavior: { ...s.behavior, ...(ov?.behavior ?? {}) },
+  });
+  const ov = s.semester_overrides as Record<string, SemesterOverride | undefined>;
+  return { sem: { 1: mk(ov?.["1"]), 2: mk(ov?.["2"]) }, final: mk() };
+}
+
 /** دمج القيم المخزنة مع القيم الافتراضية (القيم الناقصة تأخذ الافتراضي). */
 export function mergeSettings(stored: Partial<Record<string, unknown>> | null | undefined): Settings {
   const out = structuredClone(DEFAULT_SETTINGS) as Settings;
@@ -121,6 +160,10 @@ export function mergeSettings(stored: Partial<Record<string, unknown>> | null | 
     if (v && typeof v === "object" && !Array.isArray(v)) {
       (out as Record<string, unknown>)[key] = { ...(out[key] as object), ...(v as object) };
     }
+  }
+  for (const [k, old] of Object.entries(OLD_LABEL_DEFAULTS)) {
+    const L = out.labels as Record<string, string>;
+    if (L[k] === old) L[k] = (DEFAULT_SETTINGS.labels as Record<string, string>)[k];
   }
   return out;
 }

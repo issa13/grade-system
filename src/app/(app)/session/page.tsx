@@ -173,15 +173,16 @@ function SessionPageView({ id }: { id: string }) {
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <h1 className="text-2xl font-bold">{WEEKDAYS[weekdayOf(session.date)]} {fmtDate(session.date)}</h1>
-        <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs dark:bg-zinc-800">الفصل {session.semester}</span>
-        <button onClick={() => updateSession({ semester: session.semester === 1 ? 2 : 1 })} className="text-xs text-zinc-500 hover:underline">تغيير الفصل</button>
+        <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs dark:bg-zinc-800">{session.semester === 1 ? L.term1 : L.term2}</span>
+        <button onClick={() => updateSession({ semester: session.semester === 1 ? 2 : 1 })} className="text-xs text-zinc-500 hover:underline">تغيير النصف</button>
         <div className="flex-1" />
         <span className={cx("text-xs", pending ? "text-amber-600" : "text-green-600")}>{pending ? "جارٍ الحفظ…" : "✓ محفوظ"}</span>
         {siblings.prev && <Link href={`/session?id=${siblings.prev}`}><Button size="sm" variant="secondary">→ السابقة</Button></Link>}
         {siblings.next && <Link href={`/session?id=${siblings.next}`}><Button size="sm" variant="secondary">التالية ←</Button></Link>}
       </div>
 
-      <div className="mb-4 flex flex-wrap items-center gap-2">
+      <div className="sticky top-0 z-20 -mx-4 mb-3 border-b border-zinc-200 bg-zinc-50/95 px-4 py-2 backdrop-blur lg:-mx-8 lg:px-8 dark:border-zinc-800 dark:bg-zinc-950/95">
+      <div className="mb-2 flex flex-wrap items-center gap-2">
         <Input className="max-w-sm" placeholder="موضوع الحصة (اختياري)" defaultValue={session.topic ?? ""} onBlur={(e) => updateSession({ topic: e.target.value || null })} />
         <Button size="sm" variant="secondary" onClick={() => bulk(() => ({ absence: null, late: false }), "الكل حاضر")}>✓ الكل حاضر</Button>
         <Button size="sm" variant="secondary" onClick={() => bulk((r) => ({ homework: r.absence ? r.homework : "done" }), "تم")}>الكل أنجز الوظيفة</Button>
@@ -189,11 +190,12 @@ function SessionPageView({ id }: { id: string }) {
         <Button size="sm" variant={session.locked ? "primary" : "ghost"} onClick={() => updateSession({ locked: !session.locked })}>{session.locked ? "🔒 مقفلة" : "قفل الحصة"}</Button>
       </div>
 
-      <div className="mb-3 flex flex-wrap gap-4 text-sm text-zinc-600 dark:text-zinc-400">
+      <div className="flex flex-wrap gap-4 text-sm text-zinc-600 dark:text-zinc-400">
         <span>{L.absent}: <b>{stats.absent}</b></span>
         <span>{L.late}: <b>{stats.late}</b></span>
         <span>{L.participation}: <b>{stats.part}</b></span>
         <span>{L.disruption}: <b>{stats.dis}</b></span>
+      </div>
       </div>
 
       {students.length === 0 ? <Empty>لا يوجد طلاب.</Empty> : (

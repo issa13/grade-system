@@ -4,7 +4,7 @@ import { Suspense, useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { aggregateFromReport } from "@/lib/behavior";
 import { bandFor, computeRow, fmt, overallAverage, type BehaviorAgg, type Entries, type GradeRow } from "@/lib/grades";
-import { mergeSettings, type Component, type Settings } from "@/lib/settings";
+import { effectiveSettings, mergeSettings, subjectKey, type Component, type Settings, type SubjectWeights } from "@/lib/settings";
 import { cx } from "@/components/ui";
 
 type Report = {
@@ -63,7 +63,7 @@ function StudentReportView({ token }: { token: string }) {
   for (const sj of rep.subjects) {
     const en: Entries = {};
     rep.entries.filter((e) => e.subject_id === sj.id).forEach((e) => (en[e.component] = { score: e.score === null ? null : Number(e.score), excused: e.excused }));
-    rows[sj.id] = computeRow(en, s, aggs[sj.id]);
+    rows[sj.id] = computeRow(en, effectiveSettings(s, rep.settings[subjectKey(sj.id)] as SubjectWeights | undefined), aggs[sj.id]);
   }
   const overall = overallAverage(rep.subjects.map((sj) => ({ final: rows[sj.id].final, weight: Number(sj.weight) })), s);
   const band = bandFor(overall, s);
@@ -107,7 +107,7 @@ function StudentReportView({ token }: { token: string }) {
                 {V.show_band && b && <span className="text-xs" style={{ color: b.color }}>{b.label}</span>}
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
-                {[{ title: "الفصل الأول", cols: sem1Cols, sem: r.sem1, k: "sem1" }, { title: "الفصل الثاني", cols: sem2Cols, sem: r.sem2, k: "sem2" }].map((x) => (
+                {[{ title: L.term1, cols: sem1Cols, sem: r.sem1, k: "sem1" }, { title: L.term2, cols: sem2Cols, sem: r.sem2, k: "sem2" }].map((x) => (
                   <div key={x.k} className="rounded-lg bg-zinc-50 p-3 dark:bg-zinc-800/50">
                     <div className="mb-2 text-xs font-medium text-zinc-500">{x.title}</div>
                     <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">

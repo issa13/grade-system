@@ -1,12 +1,12 @@
 // محرك حساب العلامات — نفس معادلات ملف الإكسل، لكن الأوزان والقيم القصوى من الإعدادات.
 //
-// النصف = (معدل الفتريين × وزن الفتري + الفصل × وزن الفصل) ÷ (وزن الفتري + وزن الفصل)
-// النهائي = النصف1×0.4 + النصف2×0.4 + السعي1×0.1 + السعي2×0.1
+// معدل النصف = (معدل الفصلين × وزن الفصل + النصف × وزن النصف) ÷ (مجموع الوزنين)
+// النهائي = معدل النصف1×0.4 + معدل النصف2×0.4 + السعي1×0.1 + السعي2×0.1
 // كل العلامات تُحوَّل أولاً إلى السلم (من 20).
 // - لا توجد أي علامة  ← النتيجة فارغة (null)
 // - توجد علامة ناقصة ← "NC" (غير مكتمل)، أو صفر إذا اختار الأستاذ ذلك في الإعدادات.
 
-import type { Component, Settings } from "./settings";
+import type { Component, Effective, Settings } from "./settings";
 
 export type Entry = { score: number | null; excused?: boolean };
 export type Entries = Partial<Record<Component, Entry>>;
@@ -91,61 +91,74 @@ export function progressFromBehavior(b: BehaviorAgg | undefined, s: Settings): n
   return Math.max(0, Math.min(max, p.base + points));
 }
 
-/** حساب صف طالب كامل لمادة واحدة. */
+export const SEM_OF: Record<Component, 1 | 2> = { p1: 1, p2: 1, m1: 1, pr1: 1, p3: 2, p4: 2, m2: 2, pr2: 2 };
+
+function isEffective(x: Settings | Effective): x is Effective {
+  return (x as Effective).sem !== undefined && (x as Effective).final !== undefined;
+}
+export function toEffective(x: Settings | Effective): Effective {
+  return isEffective(x) ? x : { sem: { 1: x, 2: x }, final: x };
+}
+
+/**
+ * حساب صف طالب كامل لمادة واحدة.
+ * يمكن تمرير إعدادات واحدة، أو إعدادات فعلية لكل نصف (effectiveSettings) — مثلاً عندما
+ * يكون النصف الأول محفوظاً بإعدادات سابقة، أو للمادة أوزان خاصة.
+ */
 export function computeRow(
   entriesIn: Entries,
-  s: Settings,
+  settings: Settings | Effective,
   behavior?: { 1?: BehaviorAgg; 2?: BehaviorAgg },
 ): GradeRow {
-  const g = s.grading;
+  const E = toEffective(settings);
+  const gs = (sem: 1 | 2) => E.sem[sem].grading;
+  const gf = E.final.grading;
   const en: Entries = { ...entriesIn };
-  if (g.progress_mode === "behavior") {
-    for (const [c, sem] of [["pr1", 1], ["pr2", 2]] as const) {
-      if (en[c]?.score == null && !en[c]?.excused) {
-        const v = progressFromBehavior(behavior?.[sem], s);
-        if (v !== null) en[c] = { score: v };
-      }
+  for (const [c, sem] of [["pr1", 1], ["pr2", 2]] as const) {
+    if (gs(sem).progress_mode === "behavior" && en[c]?.score == null && !en[c]?.excused) {
+      const v = progressFromBehavior(behavior?.[sem], E.sem[sem]);
+      // القيمة المحسوبة تكون على سلم max_progress
+      if (v !== null) en[c] = { score: v };
     }
   }
 
+  const n = (c: Component) => norm(c, en[c], gs(SEM_OF[c]));
   const show = (c: Component): Result => {
-    const v = norm(c, en[c], g);
-    return typeof v === "number" ? roundTo(v, g) : null;
+    const v = n(c);
+    return typeof v === "number" ? roundTo(v, gs(SEM_OF[c])) : null;
   };
 
-  const sem1 = semester("p1", "p2", "m1", en, g);
-  const sem2 = semester("p3", "p4", "m2", en, g);
-  const pr1 = norm("pr1", en.pr1, g);
-  const pr2 = norm("pr2", en.pr2, g);
+  const sem1 = semester("p1", "p2", "m1", en, gs(1));
+  const sem2 = semester("p3", "p4", "m2", en, gs(2));
+  const pr1 = n("pr1");
+  const pr2 = n("pr2");
 
-  // النهائي
   const parts: [Result | "missing" | "excused", number][] = [
-    [sem1, g.sem1_weight],
-    [sem2, g.sem2_weight],
-    [pr1, g.progress1_weight],
-    [pr2, g.progress2_weight],
+    [sem1, gf.sem1_weight],
+    [sem2, gf.sem2_weight],
+    [pr1, gf.progress1_weight],
+    [pr2, gf.progress2_weight],
   ];
   let final: Result;
-  const allEmpty = parts.every(([v]) => v === null || v === "missing");
-  if (allEmpty) final = null;
+  if (parts.every(([v]) => v === null || v === "missing")) final = null;
   else {
     let num = 0, den = 0, nc = false;
     for (const [v, w] of parts) {
       if (v === "excused") continue;
       let val: number | null;
       if (typeof v === "number") val = v;
-      else if (g.missing_policy === "zero") val = 0;
+      else if (gf.missing_policy === "zero") val = 0;
       else { nc = true; val = null; }
       if (val !== null) { num += val * w; den += w; }
     }
     final = nc ? "NC" : den === 0 ? null : num / den;
   }
 
-  const r = (v: Result): Result => (typeof v === "number" ? roundTo(v, g) : v);
+  const r = (v: Result, g: G): Result => (typeof v === "number" ? roundTo(v, g) : v);
   return {
-    p1: show("p1"), p2: show("p2"), m1: show("m1"), pr1: typeof pr1 === "number" ? roundTo(pr1, g) : null, sem1: r(sem1),
-    p3: show("p3"), p4: show("p4"), m2: show("m2"), pr2: typeof pr2 === "number" ? roundTo(pr2, g) : null, sem2: r(sem2),
-    final: r(final),
+    p1: show("p1"), p2: show("p2"), m1: show("m1"), pr1: show("pr1"), sem1: r(sem1, gs(1)),
+    p3: show("p3"), p4: show("p4"), m2: show("m2"), pr2: show("pr2"), sem2: r(sem2, gs(2)),
+    final: r(final, gf),
   };
 }
 

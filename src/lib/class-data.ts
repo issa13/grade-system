@@ -2,7 +2,7 @@
 import { supabase } from "./supabase/client";
 import { aggregate, type AggMap } from "./behavior";
 import { computeRow, type Entries, type GradeRow } from "./grades";
-import type { Settings } from "./settings";
+import { effectiveSettings, type Settings, type SubjectWeights } from "./settings";
 import type { Assignment, GradeEntry, Session, SessionRecord, Student, Subject, Submission } from "./types";
 
 export type SubjectGrades = {
@@ -11,7 +11,8 @@ export type SubjectGrades = {
   rows: Record<string, GradeRow>; // student_id → computed row
 };
 
-export async function loadSubjectGrades(subjectId: string, students: Student[], s: Settings): Promise<SubjectGrades> {
+export async function loadSubjectGrades(subjectId: string, students: Student[], s: Settings, weights?: SubjectWeights | null): Promise<SubjectGrades> {
+  const eff = effectiveSettings(s, weights);
   const sb = supabase();
   const [ge, ses, asg] = await Promise.all([
     sb.from("grade_entries").select("*").eq("subject_id", subjectId),
@@ -22,7 +23,7 @@ export async function loadSubjectGrades(subjectId: string, students: Student[], 
   const assignments = (asg.data ?? []) as Assignment[];
   let records: SessionRecord[] = [];
   let subs: Submission[] = [];
-  if (s.grading.progress_mode === "behavior") {
+  if (eff.sem[1].grading.progress_mode === "behavior" || eff.sem[2].grading.progress_mode === "behavior") {
     const ids = sessions.map((x) => x.id);
     const aids = assignments.map((x) => x.id);
     if (ids.length) records = ((await sb.from("session_records").select("*").in("session_id", ids)).data ?? []) as SessionRecord[];
@@ -34,7 +35,7 @@ export async function loadSubjectGrades(subjectId: string, students: Student[], 
   }
   const agg = aggregate(sessions, records, assignments, subs);
   const rows: Record<string, GradeRow> = {};
-  for (const st of students) rows[st.id] = computeRow(entries[st.id] ?? {}, s, agg[st.id]);
+  for (const st of students) rows[st.id] = computeRow(entries[st.id] ?? {}, eff, agg[st.id]);
   return { entries, agg, rows };
 }
 

@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { computeRow, overallAverage, bandFor, progressFromBehavior } from "./grades";
-import { DEFAULT_SETTINGS, mergeSettings } from "./settings";
+import { DEFAULT_SETTINGS, effectiveSettings, mergeSettings } from "./settings";
 
-const S = mergeSettings(null);
+// الاختبارات الأصلية مكتوبة على ملف الإكسل (النصف من 40، السعي يدوي)
+const S = mergeSettings({ grading: { ...DEFAULT_SETTINGS.grading, max_midterm: 40, progress_mode: "manual" } });
 
 describe("computeRow — معادلات ملف الإكسل", () => {
   it("فارغ عندما لا توجد أي علامة", () => {
@@ -46,7 +47,7 @@ describe("computeRow — معادلات ملف الإكسل", () => {
   });
 
   it("سياسة الصفر بدل NC", () => {
-    const s = mergeSettings({ grading: { ...DEFAULT_SETTINGS.grading, missing_policy: "zero" } });
+    const s = mergeSettings({ grading: { ...S.grading, missing_policy: "zero" } });
     const r = computeRow({ p1: { score: 20 }, m1: { score: 40 } }, s);
     // معدل الفتري (20+0)/2=10 → (10×15 + 20×25)/40 = 16.25
     expect(r.sem1).toBe(16.25);
@@ -58,13 +59,13 @@ describe("computeRow — معادلات ملف الإكسل", () => {
   });
 
   it("الأوزان من الإعدادات وليست ثابتة", () => {
-    const s = mergeSettings({ grading: { ...DEFAULT_SETTINGS.grading, periodic_weight: 10, midterm_weight: 30 } });
+    const s = mergeSettings({ grading: { ...S.grading, periodic_weight: 10, midterm_weight: 30 } });
     const r = computeRow({ p1: { score: 20 }, p2: { score: 20 }, m1: { score: 0 } }, s);
     expect(r.sem1).toBe(5);
   });
 
   it("السعي من السلوك عند اختيار ذلك", () => {
-    const s = mergeSettings({ grading: { ...DEFAULT_SETTINGS.grading, progress_mode: "behavior" } });
+    const s = mergeSettings({ grading: { ...S.grading, progress_mode: "behavior" } });
     const r = computeRow({}, s, { 1: { sessions: 10, participation: 4, disruption: 1 } });
     // 14 + 4×0.5 - 1 = 15
     expect(r.pr1).toBe(15);
@@ -77,6 +78,50 @@ describe("computeRow — معادلات ملف الإكسل", () => {
     const r2 = computeRow({ p1: { score: 13 }, p2: { score: 13 }, m1: { score: 25 } }, S);
     // (13×15 + 12.5×25)/40 = 12.6875 → 12.69
     expect(r2.sem1).toBe(12.69);
+  });
+});
+
+describe("الإعدادات الافتراضية الجديدة", () => {
+  const D = mergeSettings(null);
+  it("كل العلامات من 20 والسعي من السلوك افتراضياً", () => {
+    expect(D.grading.max_periodic).toBe(20);
+    expect(D.grading.max_midterm).toBe(20);
+    expect(D.grading.max_progress).toBe(20);
+    expect(D.grading.progress_mode).toBe("behavior");
+  });
+  it("التسميات الجديدة، والتسميات القديمة المحفوظة تُستبدل", () => {
+    expect(D.labels.p1).toBe("الفصل 1");
+    expect(D.labels.m1).toBe("النصف 1");
+    expect(D.labels.sem1).toBe("معدل النصف 1");
+    const old = mergeSettings({ labels: { ...DEFAULT_SETTINGS.labels, p1: "الفتري 1", m1: "الفصل 1", sem1: "النصف 1", late: "متأخر" } });
+    expect(old.labels.p1).toBe("الفصل 1");
+    expect(old.labels.m1).toBe("النصف 1");
+    expect(old.labels.sem1).toBe("معدل النصف 1");
+    expect(old.labels.late).toBe("متأخر");
+  });
+  it("النصف من 20", () => {
+    const r = computeRow({ p1: { score: 16 }, p2: { score: 14 }, m1: { score: 15 } }, D);
+    expect(r.sem1).toBe(15);
+  });
+});
+
+describe("إعدادات لكل نصف ولكل مادة", () => {
+  const base = mergeSettings({ grading: { ...DEFAULT_SETTINGS.grading, progress_mode: "manual" } });
+  const en = { p1: { score: 20 }, p2: { score: 20 }, m1: { score: 0 }, p3: { score: 20 }, p4: { score: 20 }, m2: { score: 0 } };
+  it("نصف محفوظ بأوزان سابقة لا يتأثر بالتغيير", () => {
+    const s = mergeSettings({
+      grading: { ...base.grading, periodic_weight: 10, midterm_weight: 30 },
+      semester_overrides: { "1": { grading: { periodic_weight: 15, midterm_weight: 25 } } },
+    });
+    const r = computeRow(en, effectiveSettings(s));
+    expect(r.sem1).toBe(7.5); // الأوزان القديمة
+    expect(r.sem2).toBe(5); // الأوزان الجديدة
+  });
+  it("أوزان خاصة بالمادة", () => {
+    const r = computeRow(en, effectiveSettings(base, { periodic_weight: 1, midterm_weight: 1 }));
+    expect(r.sem1).toBe(10);
+    const r2 = computeRow({ ...en, pr1: { score: 20 }, pr2: { score: 20 } }, effectiveSettings(base, { sem1_weight: 0, sem2_weight: 0, progress1_weight: 1, progress2_weight: 1 }));
+    expect(r2.final).toBe(20);
   });
 });
 

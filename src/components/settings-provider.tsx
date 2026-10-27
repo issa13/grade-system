@@ -1,13 +1,16 @@
 "use client";
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { supabase } from "@/lib/supabase/client";
-import { DEFAULT_SETTINGS, mergeSettings, type Settings, type SettingsKey } from "@/lib/settings";
+import { DEFAULT_SETTINGS, mergeSettings, subjectKey, type Settings, type SettingsKey, type SubjectWeights } from "@/lib/settings";
 
 type Ctx = {
   settings: Settings;
   loaded: boolean;
   save: <K extends SettingsKey>(key: K, value: Settings[K]) => Promise<string | null>;
   reset: (key: SettingsKey) => Promise<string | null>;
+  /** أوزان خاصة بكل مادة (subject_id → أوزان) */
+  subjectWeights: Record<string, SubjectWeights>;
+  saveSubjectWeights: (subjectId: string, w: SubjectWeights | null) => Promise<string | null>;
 };
 
 const SettingsCtx = createContext<Ctx>({
@@ -15,6 +18,8 @@ const SettingsCtx = createContext<Ctx>({
   loaded: false,
   save: async () => null,
   reset: async () => null,
+  subjectWeights: {},
+  saveSubjectWeights: async () => null,
 });
 export const useSettings = () => useContext(SettingsCtx);
 
@@ -27,12 +32,16 @@ export function applyTheme(theme: Settings["profile"]["theme"]) {
 export function SettingsProvider({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [loaded, setLoaded] = useState(false);
+  const [subjectWeights, setSubjectWeights] = useState<Record<string, SubjectWeights>>({});
 
   useEffect(() => {
     (async () => {
       const { data } = await supabase().from("settings").select("key,value");
       const obj: Record<string, unknown> = {};
       (data ?? []).forEach((r: { key: string; value: unknown }) => (obj[r.key] = r.value));
+      const sw: Record<string, SubjectWeights> = {};
+      for (const [k, v] of Object.entries(obj)) if (k.startsWith("subject:")) sw[k.slice(8)] = v as SubjectWeights;
+      setSubjectWeights(sw);
       const s = mergeSettings(obj);
       setSettings(s);
       setLoaded(true);
@@ -65,5 +74,22 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     return null;
   }, []);
 
-  return <SettingsCtx.Provider value={{ settings, loaded, save, reset }}>{children}</SettingsCtx.Provider>;
+  const saveSubjectWeights = useCallback(async (subjectId: string, w: SubjectWeights | null) => {
+    const { data: u } = await supabase().auth.getUser();
+    if (!u.user) return "غير مسجل الدخول";
+    const key = subjectKey(subjectId);
+    const { error } = w
+      ? await supabase().from("settings").upsert({ owner_id: u.user.id, key, value: w, updated_at: new Date().toISOString() })
+      : await supabase().from("settings").delete().eq("key", key);
+    if (error) return error.message;
+    setSubjectWeights((m) => {
+      const n = { ...m };
+      if (w) n[subjectId] = w;
+      else delete n[subjectId];
+      return n;
+    });
+    return null;
+  }, []);
+
+  return <SettingsCtx.Provider value={{ settings, loaded, save, reset, subjectWeights, saveSubjectWeights }}>{children}</SettingsCtx.Provider>;
 }

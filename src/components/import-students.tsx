@@ -128,15 +128,15 @@ export function ImportStudents({ open, onClose, classId, existing, onDone }: {
             )}
 
             <div className="max-h-80 overflow-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
-              <table className="w-full text-sm">
-                <thead className="sticky top-0 bg-zinc-100 dark:bg-zinc-800">
-                  <tr><th className="p-2 text-right">#</th><th className="p-2 text-right">الاسم</th><th className="p-2 text-right">الرقم</th><th className="p-2 text-right">الحالة</th></tr>
+              <table className="sheet w-full text-sm">
+                <thead>
+                  <tr><th className="sticky-c1 p-2 text-right">#</th><th className="sticky-c2 p-2 text-right">الاسم</th><th className="p-2 text-right">الرقم</th><th className="p-2 text-right">الحالة</th></tr>
                 </thead>
                 <tbody>
                   {preview.map((r, i) => (
-                    <tr key={i} className="border-t border-zinc-100 dark:border-zinc-800">
-                      <td className="p-2 text-zinc-400">{i + 1}</td>
-                      <td className="p-2">{r.name}</td>
+                    <tr key={i}>
+                      <td className="sticky-c1 p-2 text-zinc-400">{i + 1}</td>
+                      <td className="sticky-c2 p-2">{r.name}</td>
                       <td className="p-2">{r.number}</td>
                       <td className="p-2">
                         {r.dupExisting ? <span className="text-amber-600">موجود</span> : r.dupInFile ? <span className="text-amber-600">مكرر في الملف</span> : <span className="text-green-600">جديد</span>}

@@ -5,11 +5,11 @@ import { loadSubjectGrades } from "@/lib/class-data";
 import type { AggMap } from "@/lib/behavior";
 import { exportCsv, exportXlsx } from "@/lib/excel";
 import { gradeSheet } from "@/lib/exports";
-import { bandFor, computeRow, fmt, progressFromBehavior, type Entries, type Result } from "@/lib/grades";
-import type { Component } from "@/lib/settings";
+import { SEM_OF, bandFor, computeRow, fmt, progressFromBehavior, type Entries, type Result } from "@/lib/grades";
+import { WEIGHT_KEYS, effectiveSettings, type Component, type SubjectWeights } from "@/lib/settings";
 import type { Student, Subject } from "@/lib/types";
 import { useSettings } from "./settings-provider";
-import { Button, Card, Empty, Spinner, cx, useToast } from "./ui";
+import { Button, Card, Empty, Field, Input, Spinner, confirmAction, cx, useToast } from "./ui";
 
 type Col = { key: Component | "sem1" | "sem2" | "final"; input: boolean };
 const COLS: Col[] = [
@@ -21,28 +21,32 @@ const COLS: Col[] = [
 type Change = { student: string; comp: Component; before: Entries[Component]; after: Entries[Component] };
 
 export function GradeGrid({ subject, className, students }: { subject: Subject; className: string; students: Student[] }) {
-  const { settings, loaded } = useSettings();
+  const { settings, loaded, subjectWeights, saveSubjectWeights } = useSettings();
+  const own = subjectWeights[subject.id];
+  const eff = useMemo(() => effectiveSettings(settings, own), [settings, own]);
   const toast = useToast();
   const [entries, setEntries] = useState<Record<string, Entries> | null>(null);
   const [agg, setAgg] = useState<AggMap>({});
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(0);
   const undo = useRef<Change[]>([]);
-  const g = settings.grading;
+  const g = eff.final.grading;
+  const gOf = (c: Component) => eff.sem[SEM_OF[c]].grading;
+  const [showWeights, setShowWeights] = useState(false);
   const L = settings.labels as Record<string, string>;
 
   useEffect(() => {
     if (!loaded) return;
-    loadSubjectGrades(subject.id, students, settings).then((d) => { setEntries(d.entries); setAgg(d.agg); });
-  }, [subject.id, students, settings, loaded]);
+    loadSubjectGrades(subject.id, students, settings, own).then((d) => { setEntries(d.entries); setAgg(d.agg); });
+  }, [subject.id, students, settings, loaded, own]);
 
   const rows = useMemo(() => {
     const out: Record<string, ReturnType<typeof computeRow>> = {};
-    for (const st of students) out[st.id] = computeRow(entries?.[st.id] ?? {}, settings, agg[st.id]);
+    for (const st of students) out[st.id] = computeRow(entries?.[st.id] ?? {}, eff, agg[st.id]);
     return out;
-  }, [entries, students, settings, agg]);
+  }, [entries, students, eff, agg]);
 
-  const maxFor = (c: Component) => (c.startsWith("pr") ? g.max_progress : c.startsWith("m") ? g.max_midterm : g.max_periodic);
+  const maxFor = (c: Component) => { const gg = gOf(c); return c.startsWith("pr") ? gg.max_progress : c.startsWith("m") ? gg.max_midterm : gg.max_periodic; };
 
   const persist = useCallback(async (student: string, comp: Component, val: Entries[Component]) => {
     setSaving((n) => n + 1);
@@ -129,8 +133,8 @@ export function GradeGrid({ subject, className, students }: { subject: Subject; 
     return e.excused ? "معفى" : e.score === null ? "" : String(e.score);
   };
   const placeholder = (st: string, comp: Component): string => {
-    if (g.progress_mode !== "behavior" || !comp.startsWith("pr")) return "";
-    const v = progressFromBehavior(agg[st]?.[comp === "pr1" ? 1 : 2], settings);
+    if (!comp.startsWith("pr") || gOf(comp).progress_mode !== "behavior") return "";
+    const v = progressFromBehavior(agg[st]?.[SEM_OF[comp]], eff.sem[SEM_OF[comp]]);
     return v === null ? "" : String(Math.round(v * 100) / 100);
   };
 
@@ -144,23 +148,42 @@ export function GradeGrid({ subject, className, students }: { subject: Subject; 
     <div>
       <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
         <span className="text-zinc-500">
-          الفتري من {g.max_periodic} · الفصل من {g.max_midterm} · السعي من {g.max_progress}
-          {g.progress_mode === "behavior" && " (يُحسب من السلوك إذا ترك فارغاً)"} · اكتب «م» للمعفى
+          كل العلامات من {g.max_periodic === g.max_midterm && g.max_midterm === g.max_progress ? g.max_periodic : `${g.max_periodic} / ${g.max_midterm} / ${g.max_progress}`}
+          {g.progress_mode === "behavior" && " · السعي يُحسب من السلوك والوظائف إذا ترك فارغاً"} · اكتب «م» للمعفى
         </span>
         <span className={cx("ms-2 text-xs", saving ? "text-amber-600" : "text-green-600")}>{saving ? "جارٍ الحفظ…" : "✓ محفوظ"}</span>
         <div className="flex-1" />
+        <Button size="sm" variant={own ? "primary" : "secondary"} onClick={() => setShowWeights(!showWeights)}>⚖ أوزان المادة{own ? " (خاصة)" : ""}</Button>
         <Button size="sm" variant="secondary" onClick={doUndo}>↶ تراجع</Button>
         <Button size="sm" variant="secondary" onClick={() => { const s = sheet(); exportCsv(s.header, s.rows, `${subject.name}.csv`); }}>CSV</Button>
         <Button size="sm" variant="secondary" onClick={() => exportXlsx([sheet()], `${className} - ${subject.name}.xlsx`)}>تصدير Excel</Button>
       </div>
-      <Card className="overflow-x-auto p-0">
-        <table className="sheet w-full min-w-[900px] border-collapse text-sm">
+      {showWeights && (
+        <WeightsPanel
+          subjectName={subject.name}
+          current={Object.fromEntries(WEIGHT_KEYS.map((k) => [k, g[k]])) as SubjectWeights}
+          hasOwn={!!own}
+          labels={L}
+          onSave={async (w) => {
+            const err = await saveSubjectWeights(subject.id, w);
+            toast(err ? { text: err, kind: "err" } : { text: w ? `حُفظت أوزان ${subject.name}` : "عادت المادة إلى الأوزان العامة", kind: "ok" });
+            if (!err) setShowWeights(false);
+          }}
+          onClose={() => setShowWeights(false)}
+        />
+      )}
+      <p className="mb-2 text-xs text-zinc-500">
+        {L.sem1} = (معدل {L.p1.replace(/\s*1$/, "")}ين × {g.periodic_weight} + {L.m1.replace(/\s*1$/, "")} × {g.midterm_weight}) ÷ {g.periodic_weight + g.midterm_weight}
+        {" · "}{L.final} = {L.sem1} × {g.sem1_weight} + {L.sem2} × {g.sem2_weight} + {L.pr1} × {g.progress1_weight} + {L.pr2} × {g.progress2_weight}
+      </p>
+      <Card className="table-scroll p-0">
+        <table className="sheet w-full min-w-[900px] text-sm">
           <thead>
             <tr>
-              <th className="w-10">#</th>
-              <th className="min-w-[180px] text-right">الاسم</th>
+              <th className="sticky-c1 w-10">#</th>
+              <th className="sticky-c2 min-w-[180px] text-right">الاسم</th>
               {COLS.map((c) => (
-                <th key={c.key} className={cx("w-[72px]", !c.input && "bg-brand-50 dark:bg-brand-700/30")}>{L[c.key]}</th>
+                <th key={c.key} className={cx("min-w-[76px]", !c.input && "bg-brand-50 dark:bg-brand-700/30")}>{L[c.key]}</th>
               ))}
               <th className="w-20">التقدير</th>
             </tr>
@@ -168,12 +191,12 @@ export function GradeGrid({ subject, className, students }: { subject: Subject; 
           <tbody>
             {students.map((st, r) => {
               const row = rows[st.id];
-              const band = bandFor(row.final, settings);
+              const band = bandFor(row.final, eff.final);
               let ci = -1;
               return (
                 <tr key={st.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/40">
-                  <td className="text-center text-zinc-400">{r + 1}</td>
-                  <td className="whitespace-nowrap px-2">{st.full_name}</td>
+                  <td className="sticky-c1 text-center text-zinc-400">{r + 1}</td>
+                  <td className="sticky-c2 whitespace-nowrap px-2">{st.full_name}</td>
                   {COLS.map((c) => {
                     if (!c.input) {
                       const v = row[c.key] as Result;
@@ -209,7 +232,8 @@ export function GradeGrid({ subject, className, students }: { subject: Subject; 
           </tbody>
           <tfoot>
             <tr className="bg-zinc-50 text-xs text-zinc-500 dark:bg-zinc-800/50">
-              <td colSpan={2} className="px-2 py-2">معدل الصف</td>
+              <td className="sticky-c1 bg-zinc-50 dark:bg-zinc-800" />
+              <td className="sticky-c2 bg-zinc-50 px-2 py-2 dark:bg-zinc-800">معدل الصف</td>
               {COLS.map((c) => (
                 <td key={c.key} className="text-center tabular-nums">
                   {c.key === "sem1" || c.key === "sem2" || c.key === "final" ? avgOf(c.key) ?? "" : ""}
@@ -222,5 +246,42 @@ export function GradeGrid({ subject, className, students }: { subject: Subject; 
       </Card>
       <p className="mt-2 text-xs text-zinc-500">Enter أو ↓ للانتقال للطالب التالي · الأسهم للتنقل · Ctrl+Z للتراجع · الحفظ تلقائي</p>
     </div>
+  );
+}
+
+function WeightsPanel({ subjectName, current, hasOwn, labels: L, onSave, onClose }: {
+  subjectName: string; current: SubjectWeights; hasOwn: boolean; labels: Record<string, string>;
+  onSave: (w: SubjectWeights | null) => void; onClose: () => void;
+}) {
+  const [w, setW] = useState<SubjectWeights>(current);
+  const f = (k: (typeof WEIGHT_KEYS)[number], label: string) => (
+    <Field key={k} label={label}>
+      <Input type="number" step="any" min="0" value={w[k] ?? ""} onChange={(e) => setW({ ...w, [k]: e.target.value === "" ? undefined : Number(e.target.value) })} />
+    </Field>
+  );
+  const base = (x: string) => x.replace(/\s*1$/, "");
+  const finalSum = (w.sem1_weight ?? 0) + (w.sem2_weight ?? 0) + (w.progress1_weight ?? 0) + (w.progress2_weight ?? 0);
+  return (
+    <Card className="mb-4 border-brand-500">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h3 className="font-semibold">أوزان {subjectName} <span className="text-xs font-normal text-zinc-500">— تطبَّق على هذه المادة فقط</span></h3>
+        <button onClick={onClose} className="text-zinc-400 hover:text-zinc-700" aria-label="إغلاق">✕</button>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {f("periodic_weight", `وزن معدل ${base(L.p1)}ين داخل ${base(L.sem1)}`)}
+        {f("midterm_weight", `وزن ${base(L.m1)} داخل ${base(L.sem1)}`)}
+        <div className="hidden lg:block" />
+        {f("sem1_weight", `وزن ${L.sem1} في ${L.final}`)}
+        {f("sem2_weight", `وزن ${L.sem2} في ${L.final}`)}
+        <div className="hidden lg:block" />
+        {f("progress1_weight", `وزن ${L.pr1} في ${L.final}`)}
+        {f("progress2_weight", `وزن ${L.pr2} في ${L.final}`)}
+      </div>
+      {Math.abs(finalSum - 1) > 0.001 && <p className="mt-2 text-xs text-amber-600">مجموع أوزان {L.final} = {finalSum} (يُقسَم الناتج على المجموع).</p>}
+      <div className="mt-4 flex flex-wrap justify-end gap-2">
+        {hasOwn && <Button variant="ghost" onClick={() => confirmAction("إلغاء الأوزان الخاصة والرجوع إلى أوزان الإعدادات العامة؟") && onSave(null)}>الرجوع للأوزان العامة</Button>}
+        <Button onClick={() => onSave(w)}>حفظ لهذه المادة</Button>
+      </div>
+    </Card>
   );
 }

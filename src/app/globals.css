@@ -27,8 +27,33 @@
 @utility grid-cell {
   @apply h-9 w-full bg-transparent px-1 text-center text-sm tabular-nums outline-none focus:bg-brand-50 focus:ring-2 focus:ring-inset focus:ring-brand-500 dark:focus:bg-brand-700/30;
 }
-.sheet th, .sheet td { @apply border border-zinc-200 dark:border-zinc-800; }
-.sheet thead th { @apply sticky top-0 z-10 bg-zinc-100 px-2 py-2 text-xs font-semibold dark:bg-zinc-800; }
+/* جداول فيها أسماء: السطر الأول (العناوين) وعمود الاسم ثابتان أثناء التمرير */
+.table-scroll {
+  overflow: auto;
+  max-height: calc(100dvh - 13rem);
+  overscroll-behavior: contain;
+}
+.sheet { border-collapse: separate; border-spacing: 0; }
+.sheet th, .sheet td {
+  border-bottom: 1px solid var(--color-zinc-200);
+  border-inline-start: 1px solid var(--color-zinc-200);
+}
+.dark .sheet th, .dark .sheet td { border-color: var(--color-zinc-800); }
+.sheet thead th {
+  @apply sticky top-0 z-20 bg-zinc-100 px-2 py-2 text-xs font-semibold dark:bg-zinc-800;
+}
+.sheet tfoot td { @apply sticky bottom-0 z-20; }
+/* العمود الأول (#) والثاني (الاسم) ثابتان على اليمين */
+.sticky-c1, .sticky-c2 {
+  position: sticky;
+  z-index: 10;
+  @apply bg-white dark:bg-zinc-900;
+}
+.sticky-c1 { inset-inline-start: 0; width: 2.5rem; min-width: 2.5rem; }
+.sticky-c2 { inset-inline-start: 2.5rem; box-shadow: -6px 0 6px -6px rgb(0 0 0 / 0.15); }
+.sheet thead th.sticky-c1, .sheet thead th.sticky-c2 { z-index: 30; @apply bg-zinc-100 dark:bg-zinc-800; }
+.sheet tfoot td.sticky-c1, .sheet tfoot td.sticky-c2 { z-index: 30; }
+tr:hover > .sticky-c1, tr:hover > .sticky-c2 { @apply bg-zinc-50 dark:bg-zinc-800; }
 
 @media print {
   .no-print { display: none !important; }

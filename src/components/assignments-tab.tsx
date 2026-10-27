@@ -103,7 +103,7 @@ export function AssignmentsTab({ subject, students }: { subject: Subject; studen
             {list.map((a) => (
               <button key={a.id} onClick={() => setSel(a)} className={cx("block w-full px-4 py-2.5 text-right", sel?.id === a.id ? "bg-brand-50 dark:bg-brand-700/20" : "hover:bg-zinc-50 dark:hover:bg-zinc-800")}>
                 <div className="font-medium">{a.title}</div>
-                <div className="text-xs text-zinc-500">{a.due_date ? fmtDate(a.due_date) : "بدون تاريخ"} · ف{a.semester}{a.max_score ? ` · من ${a.max_score}` : ""}</div>
+                <div className="text-xs text-zinc-500">{a.due_date ? fmtDate(a.due_date) : "بدون تاريخ"} · {a.semester === 1 ? settings.labels.term1 : settings.labels.term2}{a.max_score ? ` · من ${a.max_score}` : ""}</div>
               </button>
             ))}
           </Card>
@@ -112,7 +112,7 @@ export function AssignmentsTab({ subject, students }: { subject: Subject; studen
       <div>
         {!sel ? <Empty>اختر واجباً لتسجيل حالة كل طالب.</Empty> : (
           <Card className="p-0">
-            <div className="flex flex-wrap items-center gap-2 border-b border-zinc-100 p-3 dark:border-zinc-800">
+            <div className="sticky top-0 z-20 flex flex-wrap items-center gap-2 rounded-t-xl border-b border-zinc-100 bg-white/95 p-3 backdrop-blur dark:border-zinc-800 dark:bg-zinc-900/95">
               <b className="flex-1">{sel.title}</b>
               <Button size="sm" variant="secondary" onClick={() => markAll("done")}>الكل منجز</Button>
               <Button size="sm" variant="ghost" onClick={() => setEdit(sel)}>تعديل</Button>
@@ -148,9 +148,9 @@ export function AssignmentsTab({ subject, students }: { subject: Subject; studen
           <div className="grid grid-cols-3 gap-3">
             <Field label="تاريخ التسليم"><Input type="date" value={edit?.due_date ?? ""} onChange={(e) => setEdit({ ...edit, due_date: e.target.value })} /></Field>
             <Field label="العلامة القصوى"><Input type="number" min="0" placeholder="اختياري" value={edit?.max_score ?? ""} onChange={(e) => setEdit({ ...edit, max_score: e.target.value ? Number(e.target.value) : null })} /></Field>
-            <Field label="الفصل">
+            <Field label="النصف">
               <Select className="w-full" value={edit?.semester ?? (edit?.due_date ? semesterFor(edit.due_date, settings) : 1)} onChange={(e) => setEdit({ ...edit, semester: Number(e.target.value) as 1 | 2 })}>
-                <option value={1}>الأول</option><option value={2}>الثاني</option>
+                <option value={1}>{settings.labels.term1}</option><option value={2}>{settings.labels.term2}</option>
               </Select>
             </Field>
           </div>

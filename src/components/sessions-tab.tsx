@@ -150,7 +150,7 @@ export function SessionsTab({ subject, students }: { subject: Subject; students:
         <div className="mb-2 flex flex-wrap items-center gap-2">
           <h3 className="font-semibold">الحصص</h3>
           <Select value={sem} onChange={(e) => setSem(Number(e.target.value) as 0 | 1 | 2)}>
-            <option value={0}>كل السنة</option><option value={1}>الفصل الأول</option><option value={2}>الفصل الثاني</option>
+            <option value={0}>كل السنة</option><option value={1}>{settings.labels.term1}</option><option value={2}>{settings.labels.term2}</option>
           </Select>
           <div className="flex-1" />
           <Button size="sm" variant="secondary" onClick={exportLogs}>تصدير السجل</Button>
@@ -164,7 +164,7 @@ export function SessionsTab({ subject, students }: { subject: Subject; students:
                 <Link href={`/session?id=${s.id}`} className="flex flex-1 items-center gap-3 hover:text-brand-600">
                   <span className="w-20 text-sm font-medium tabular-nums">{fmtDate(s.date)}</span>
                   <span className="w-16 text-sm text-zinc-500">{WEEKDAYS[weekdayOf(s.date)]}</span>
-                  <span className="text-xs text-zinc-500">ف{s.semester}</span>
+                  <span className="text-xs text-zinc-500">{s.semester === 1 ? settings.labels.term1 : settings.labels.term2}</span>
                   {s.topic && <span className="truncate text-sm text-zinc-600 dark:text-zinc-400">{s.topic}</span>}
                   {s.cancelled ? <span className="text-xs text-red-600">ملغاة</span>
                     : s.session_records?.[0]?.count ? <span className="text-xs text-green-600">✓ مسجلة</span>
@@ -196,14 +196,14 @@ export function SessionsTab({ subject, students }: { subject: Subject; students:
       <Modal open={!!gen} onClose={() => setGen(null)} title="توليد الحصص من البرنامج">
         {gen && (
           <div className="space-y-3">
-            <Field label="الفصل">
+            <Field label="النصف">
               <Select className="w-full" value={gen.sem} onChange={(e) => {
                 const s = Number(e.target.value) as 1 | 2;
                 const [yy, mm, dd] = settings.year.sem1_end.split("-").map(Number);
                 const d = new Date(yy, mm - 1, dd + 1);
                 setGen(s === 1 ? { sem: 1, from: settings.year.start, to: settings.year.sem1_end } : { sem: 2, from: toISO(d), to: settings.year.end });
               }}>
-                <option value={1}>الفصل الأول</option><option value={2}>الفصل الثاني</option>
+                <option value={1}>{settings.labels.term1}</option><option value={2}>{settings.labels.term2}</option>
               </Select>
             </Field>
             <div className="grid grid-cols-2 gap-3">
