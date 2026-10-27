@@ -105,6 +105,27 @@ describe("الإعدادات الافتراضية الجديدة", () => {
   });
 });
 
+describe("العلامة حتى الآن", () => {
+  it("تُحسب من العلامات الموجودة فقط عندما يكون النهائي NC", () => {
+    const D = mergeSettings({ grading: { ...DEFAULT_SETTINGS.grading, progress_mode: "manual" } });
+    const r = computeRow({ p1: { score: 16 }, m1: { score: 12 } }, D);
+    expect(r.final).toBe("NC");
+    // (16×15 + 12×25) / 40 = 13.5
+    expect(r.current).toBe(13.5);
+    expect(computeRow({}, D).current).toBeNull();
+  });
+});
+
+describe("سلّم التقديرات", () => {
+  it("السلّم القديم المحفوظ يُستبدل بالجديد، والمعدَّل يبقى", () => {
+    const old = [16, 14, 12, 10, 0].map((min, i) => ({ min, label: ["ممتاز", "جيد جداً", "جيد", "مقبول", "راسب"][i], color: "#000000" }));
+    const m = mergeSettings({ grading: { ...DEFAULT_SETTINGS.grading, bands: old } });
+    expect(m.grading.bands.map((b) => b.min)).toEqual([18, 16, 14, 10, 0]);
+    const custom = mergeSettings({ grading: { ...DEFAULT_SETTINGS.grading, bands: [{ min: 15, label: "ممتاز", color: "#000" }, { min: 0, label: "غيره", color: "#000" }] } });
+    expect(custom.grading.bands.length).toBe(2);
+  });
+});
+
 describe("إعدادات لكل نصف ولكل مادة", () => {
   const base = mergeSettings({ grading: { ...DEFAULT_SETTINGS.grading, progress_mode: "manual" } });
   const en = { p1: { score: 20 }, p2: { score: 20 }, m1: { score: 0 }, p3: { score: 20 }, p4: { score: 20 }, m2: { score: 0 } };
@@ -132,7 +153,11 @@ describe("overall / bands / behavior", () => {
     expect(overallAverage([{ final: null, weight: 1 }], S)).toBeNull();
   });
   it("التقدير", () => {
-    expect(bandFor(17, S)?.label).toBe("ممتاز");
+    expect(bandFor(18, S)?.label).toBe("ممتاز");
+    expect(bandFor(17, S)?.label).toBe("جيد جداً");
+    expect(bandFor(15, S)?.label).toBe("جيد");
+    expect(bandFor(12, S)?.label).toBe("مقبول");
+    expect(bandFor(10, S)?.label).toBe("مقبول");
     expect(bandFor(9.99, S)?.label).toBe("راسب");
     expect(bandFor("NC", S)).toBeNull();
   });

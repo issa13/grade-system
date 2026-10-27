@@ -1,5 +1,6 @@
 "use client";
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { Info } from "./info";
 
 export function cx(...c: (string | false | null | undefined)[]) {
   return c.filter(Boolean).join(" ");
@@ -50,10 +51,10 @@ export function Select(p: React.SelectHTMLAttributes<HTMLSelectElement>) {
   );
 }
 
-export function Field({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) {
+export function Field({ label, children, hint, info }: { label: string; children: ReactNode; hint?: string; info?: ReactNode }) {
   return (
     <label className="block space-y-1">
-      <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{label}</span>
+      <span className="flex items-center text-sm font-medium text-zinc-700 dark:text-zinc-300">{label}{info && <Info title={label}>{info}</Info>}</span>
       {children}
       {hint && <span className="block text-xs text-zinc-500">{hint}</span>}
     </label>
@@ -68,11 +69,11 @@ export function Card({ children, className }: { children: ReactNode; className?:
   );
 }
 
-export function PageHeader({ title, sub, actions }: { title: ReactNode; sub?: ReactNode; actions?: ReactNode }) {
+export function PageHeader({ title, sub, actions, info }: { title: ReactNode; sub?: ReactNode; actions?: ReactNode; info?: ReactNode }) {
   return (
     <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
       <div>
-        <h1 className="text-2xl font-bold">{title}</h1>
+        <h1 className="flex items-center text-2xl font-bold">{title}{info && <Info title={typeof title === "string" ? title : undefined}>{info}</Info>}</h1>
         {sub && <div className="mt-1 text-sm text-zinc-500">{sub}</div>}
       </div>
       {actions && <div className="flex flex-wrap gap-2">{actions}</div>}

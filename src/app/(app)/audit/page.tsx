@@ -55,7 +55,7 @@ export default function AuditPage() {
 
   return (
     <div>
-      <PageHeader title="سجل التعديلات" sub="كل تغيير يُسجَّل: ماذا تغيّر، القيمة قبل وبعد، والوقت"
+      <PageHeader info="كل إضافة أو تعديل أو حذف يُسجَّل تلقائياً مع القيمة قبل وبعد. «استرجاع» يعيد السجل إلى حالته قبل هذا التغيير." title="سجل التعديلات" sub="كل تغيير يُسجَّل: ماذا تغيّر، القيمة قبل وبعد، والوقت"
         actions={
           <Select value={table} onChange={(e) => { setTable(e.target.value); setPage(0); }}>
             <option value="">الكل</option>

@@ -44,7 +44,7 @@ export default function TrashPage() {
 
   return (
     <div>
-      <PageHeader title="سلة المحذوفات" sub={`تُحذف العناصر نهائياً بعد ${settings.data.trash_retention_days} يوماً`} />
+      <PageHeader info="كل ما تحذفه يأتي إلى هنا أولاً. «استعادة» ترجعه كما كان مع كل بياناته. المدة تُعدَّل من الإعدادات ← البيانات." title="سلة المحذوفات" sub={`تُحذف العناصر نهائياً بعد ${settings.data.trash_retention_days} يوماً`} />
       {!items ? <Spinner /> : items.length === 0 ? <Empty>السلة فارغة.</Empty> : (
         <Card className="divide-y divide-zinc-100 p-0 dark:divide-zinc-800">
           {items.map((i) => (

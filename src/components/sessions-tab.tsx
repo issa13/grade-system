@@ -7,6 +7,7 @@ import { datesBetween, fmtDate, semesterFor, toISO, today, weekdayOf } from "@/l
 import { exportXlsx } from "@/lib/excel";
 import { WEEKDAYS, type Session, type SessionRecord, type Slot, type Student, type Subject } from "@/lib/types";
 import { useSettings } from "./settings-provider";
+import { Info } from "./info";
 import { Button, Card, Empty, Field, Input, Modal, Select, Spinner, cx, useToast } from "./ui";
 
 export function SessionsTab({ subject, students }: { subject: Subject; students: Student[] }) {
@@ -129,7 +130,7 @@ export function SessionsTab({ subject, students }: { subject: Subject; students:
 
       <section>
         <div className="mb-2 flex items-center justify-between">
-          <h3 className="font-semibold">البرنامج الأسبوعي <span className="text-sm font-normal text-zinc-500">({slots.length} حصة في الأسبوع)</span></h3>
+          <h3 className="flex flex-wrap items-center font-semibold">البرنامج الأسبوعي<Info title="البرنامج الأسبوعي">مواعيد حصص هذه المادة في الأسبوع. عدد المواعيد = عدد الحصص في الأسبوع. تُستعمل لتوليد الحصص تلقائياً.</Info> <span className="text-sm font-normal text-zinc-500">({slots.length} حصة في الأسبوع)</span></h3>
           <Button size="sm" variant="secondary" onClick={() => setSlotEdit({ weekday: 1 })}>+ موعد</Button>
         </div>
         {slots.length === 0 ? <Empty>أضف مواعيد الحصص الأسبوعية (مثلاً: الإثنين 8:00) ليتم إنشاء الحصص تلقائياً.</Empty> : (
@@ -148,7 +149,7 @@ export function SessionsTab({ subject, students }: { subject: Subject; students:
 
       <section>
         <div className="mb-2 flex flex-wrap items-center gap-2">
-          <h3 className="font-semibold">الحصص</h3>
+          <h3 className="flex items-center font-semibold">الحصص<Info title="الحصص">«توليد الحصص» ينشئ حصة لكل موعد أسبوعي بين تاريخين (بدون العطل، وبدون تكرار). «حصة إضافية» لحصة خارج البرنامج. «إلغاء» يستثني الحصة من الحساب دون حذفها. «غير مسجلة» = مضى تاريخها ولم يُسجَّل فيها شيء.</Info></h3>
           <Select value={sem} onChange={(e) => setSem(Number(e.target.value) as 0 | 1 | 2)}>
             <option value={0}>كل السنة</option><option value={1}>{settings.labels.term1}</option><option value={2}>{settings.labels.term2}</option>
           </Select>

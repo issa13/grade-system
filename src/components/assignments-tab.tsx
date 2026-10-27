@@ -5,6 +5,7 @@ import { fmtDate, semesterFor, today } from "@/lib/dates";
 import { exportXlsx } from "@/lib/excel";
 import type { Assignment, Student, Subject, Submission } from "@/lib/types";
 import { useSettings } from "./settings-provider";
+import { Info } from "./info";
 import { Button, Card, Empty, Field, Input, Modal, Select, Spinner, cx, useToast } from "./ui";
 
 const STATUS: { id: Submission["status"]; label: string; cls: string }[] = [
@@ -113,7 +114,7 @@ export function AssignmentsTab({ subject, students }: { subject: Subject; studen
         {!sel ? <Empty>اختر واجباً لتسجيل حالة كل طالب.</Empty> : (
           <Card className="p-0">
             <div className="sticky top-0 z-20 flex flex-wrap items-center gap-2 rounded-t-xl border-b border-zinc-100 bg-white/95 p-3 backdrop-blur dark:border-zinc-800 dark:bg-zinc-900/95">
-              <b className="flex-1">{sel.title}</b>
+              <b className="flex flex-1 items-center">{sel.title}<Info title="تسجيل الواجب">اضغط حالة كل طالب: منجزة، متأخرة (تُحسب منجزة في السعي)، أو غير منجزة. ضغطة ثانية تمسح الحالة. إذا كان للواجب علامة قصوى، تظهر خانة للعلامة.</Info></b>
               <Button size="sm" variant="secondary" onClick={() => markAll("done")}>الكل منجز</Button>
               <Button size="sm" variant="ghost" onClick={() => setEdit(sel)}>تعديل</Button>
               <Button size="sm" variant="ghost" className="text-red-600" onClick={() => remove(sel)}>حذف</Button>

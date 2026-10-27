@@ -49,8 +49,8 @@
   z-index: 10;
   @apply bg-white dark:bg-zinc-900;
 }
-.sticky-c1 { inset-inline-start: 0; width: 2.5rem; min-width: 2.5rem; }
-.sticky-c2 { inset-inline-start: 2.5rem; box-shadow: -6px 0 6px -6px rgb(0 0 0 / 0.15); }
+.sticky-c1 { inset-inline-start: 0; width: var(--c1w, 2.5rem); min-width: var(--c1w, 2.5rem); }
+.sticky-c2 { inset-inline-start: var(--c1w, 2.5rem); box-shadow: -6px 0 6px -6px rgb(0 0 0 / 0.15); }
 .sheet thead th.sticky-c1, .sheet thead th.sticky-c2 { z-index: 30; @apply bg-zinc-100 dark:bg-zinc-800; }
 .sheet tfoot td.sticky-c1, .sheet tfoot td.sticky-c2 { z-index: 30; }
 tr:hover > .sticky-c1, tr:hover > .sticky-c2 { @apply bg-zinc-50 dark:bg-zinc-800; }

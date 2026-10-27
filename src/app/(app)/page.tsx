@@ -58,6 +58,7 @@ export default function ClassesPage() {
   return (
     <div>
       <PageHeader
+        info="كل صف له طلاب ومواد. «أرشفة» تخفي الصف دون حذفه (مثلاً صفوف السنة الماضية). «حذف» ينقله إلى سلة المحذوفات."
         title="الصفوف"
         sub={`السنة الدراسية ${settings.year.school_year}`}
         actions={

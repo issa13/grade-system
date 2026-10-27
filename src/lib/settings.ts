@@ -40,9 +40,9 @@ export const DEFAULT_SETTINGS = {
     missing_policy: "nc" as "nc" | "zero", // nc = إظهار NC عند نقص علامة، zero = اعتبارها صفراً
     progress_mode: "behavior" as "manual" | "behavior", // السعي: يدوي أو محسوب من السلوك
     bands: [
-      { min: 16, label: "ممتاز", color: "#15803d" },
-      { min: 14, label: "جيد جداً", color: "#1f7a68" },
-      { min: 12, label: "جيد", color: "#0369a1" },
+      { min: 18, label: "ممتاز", color: "#15803d" },
+      { min: 16, label: "جيد جداً", color: "#1f7a68" },
+      { min: 14, label: "جيد", color: "#0369a1" },
       { min: 10, label: "مقبول", color: "#b45309" },
       { min: 0, label: "راسب", color: "#b91c1c" },
     ] as Band[],
@@ -133,6 +133,10 @@ const OLD_LABEL_DEFAULTS: Record<string, string> = {
   p3: "الفتري 3", p4: "الفتري 4", m2: "الفصل 2", sem2: "النصف 2",
 };
 
+// سلّم التقديرات الافتراضي القديم: إذا كان محفوظاً كما هو، يُستبدل بالجديد.
+const OLD_BANDS_KEY = "16:ممتاز|14:جيد جداً|12:جيد|10:مقبول|0:راسب";
+const bandsKey = (b: Band[]) => b.map((x) => `${x.min}:${x.label}`).join("|");
+
 /** الإعدادات الفعلية لكل نصف ولحساب النهائي، مع أوزان المادة الخاصة إن وُجدت. */
 export type Effective = { sem: { 1: Settings; 2: Settings }; final: Settings };
 
@@ -160,6 +164,9 @@ export function mergeSettings(stored: Partial<Record<string, unknown>> | null | 
     if (v && typeof v === "object" && !Array.isArray(v)) {
       (out as Record<string, unknown>)[key] = { ...(out[key] as object), ...(v as object) };
     }
+  }
+  if (Array.isArray(out.grading.bands) && bandsKey(out.grading.bands) === OLD_BANDS_KEY) {
+    out.grading.bands = structuredClone(DEFAULT_SETTINGS.grading.bands);
   }
   for (const [k, old] of Object.entries(OLD_LABEL_DEFAULTS)) {
     const L = out.labels as Record<string, string>;

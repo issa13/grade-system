@@ -9,6 +9,8 @@ import { SEM_OF, bandFor, computeRow, fmt, progressFromBehavior, type Entries, t
 import { WEIGHT_KEYS, effectiveSettings, type Component, type SubjectWeights } from "@/lib/settings";
 import type { Student, Subject } from "@/lib/types";
 import { useSettings } from "./settings-provider";
+import Link from "next/link";
+import { Info } from "./info";
 import { Button, Card, Empty, Field, Input, Spinner, confirmAction, cx, useToast } from "./ui";
 
 type Col = { key: Component | "sem1" | "sem2" | "final"; input: boolean };
@@ -17,6 +19,17 @@ const COLS: Col[] = [
   { key: "p3", input: true }, { key: "p4", input: true }, { key: "m2", input: true }, { key: "pr2", input: true }, { key: "sem2", input: false },
   { key: "final", input: false },
 ];
+
+function COL_INFO(key: string, L: Record<string, string>, g: { max_periodic: number; max_midterm: number; max_progress: number; periodic_weight: number; midterm_weight: number; scale: number; progress_mode: string; sem1_weight: number; sem2_weight: number; progress1_weight: number; progress2_weight: number }) {
+  if (/^p\d$/.test(key)) return `امتحان فصل، يُدخل من ${g.max_periodic}. اكتب «م» إذا كان الطالب معفى.`;
+  if (/^m\d$/.test(key)) return `امتحان النصف، يُدخل من ${g.max_midterm}. اكتب «م» إذا كان الطالب معفى.`;
+  if (/^pr\d$/.test(key)) return g.progress_mode === "behavior"
+    ? `يُحسب تلقائياً من السلوك والوظائف (الرقم الرمادي). اكتب علامة من ${g.max_progress} لتستبدل المحسوبة، أو امسحها للرجوع إلى المحسوبة.`
+    : `علامة السعي، تُدخل يدوياً من ${g.max_progress}.`;
+  if (key === "sem1" || key === "sem2") return `محسوب: (معدل الفصلين × ${g.periodic_weight} + النصف × ${g.midterm_weight}) ÷ ${g.periodic_weight + g.midterm_weight}، من ${g.scale}. NC = تنقص علامة.`;
+  if (key === "final") return `محسوب: ${L.sem1} × ${g.sem1_weight} + ${L.sem2} × ${g.sem2_weight} + ${L.pr1} × ${g.progress1_weight} + ${L.pr2} × ${g.progress2_weight}.`;
+  return "";
+}
 
 type Change = { student: string; comp: Component; before: Entries[Component]; after: Entries[Component] };
 
@@ -181,11 +194,11 @@ export function GradeGrid({ subject, className, students }: { subject: Subject; 
           <thead>
             <tr>
               <th className="sticky-c1 w-10">#</th>
-              <th className="sticky-c2 min-w-[180px] text-right">الاسم</th>
+              <th className="sticky-c2 min-w-[180px] text-right">الاسم<Info title="الاسم">اضغط على الاسم لفتح إحصائيات الطالب. ترتيب الطلاب يُغيَّر من صفحة الصف ← الطلاب (سحب وإفلات).</Info></th>
               {COLS.map((c) => (
-                <th key={c.key} className={cx("min-w-[76px]", !c.input && "bg-brand-50 dark:bg-brand-700/30")}>{L[c.key]}</th>
+                <th key={c.key} className={cx("min-w-[76px]", !c.input && "bg-brand-50 dark:bg-brand-700/30")}>{L[c.key]}<Info title={L[c.key]}>{COL_INFO(c.key, L, g)}</Info></th>
               ))}
-              <th className="w-20">التقدير</th>
+              <th className="w-20">التقدير<Info title="التقدير">حسب علامة النهائي وسلّم التقديرات في الإعدادات ← حساب العلامات.</Info></th>
             </tr>
           </thead>
           <tbody>
@@ -196,7 +209,7 @@ export function GradeGrid({ subject, className, students }: { subject: Subject; 
               return (
                 <tr key={st.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/40">
                   <td className="sticky-c1 text-center text-zinc-400">{r + 1}</td>
-                  <td className="sticky-c2 whitespace-nowrap px-2">{st.full_name}</td>
+                  <td className="sticky-c2 whitespace-nowrap px-2"><Link href={`/student?id=${st.id}`} className="hover:text-brand-600 hover:underline">{st.full_name}</Link></td>
                   {COLS.map((c) => {
                     if (!c.input) {
                       const v = row[c.key] as Result;
@@ -233,7 +246,7 @@ export function GradeGrid({ subject, className, students }: { subject: Subject; 
           <tfoot>
             <tr className="bg-zinc-50 text-xs text-zinc-500 dark:bg-zinc-800/50">
               <td className="sticky-c1 bg-zinc-50 dark:bg-zinc-800" />
-              <td className="sticky-c2 bg-zinc-50 px-2 py-2 dark:bg-zinc-800">معدل الصف</td>
+              <td className="sticky-c2 bg-zinc-50 px-2 py-2 dark:bg-zinc-800">معدل الصف<Info title="معدل الصف">متوسط العمود لكل الطلاب الذين لهم نتيجة رقمية (NC والفارغ لا يدخلان).</Info></td>
               {COLS.map((c) => (
                 <td key={c.key} className="text-center tabular-nums">
                   {c.key === "sem1" || c.key === "sem2" || c.key === "final" ? avgOf(c.key) ?? "" : ""}
@@ -264,7 +277,7 @@ function WeightsPanel({ subjectName, current, hasOwn, labels: L, onSave, onClose
   return (
     <Card className="mb-4 border-brand-500">
       <div className="mb-3 flex items-center justify-between gap-2">
-        <h3 className="font-semibold">أوزان {subjectName} <span className="text-xs font-normal text-zinc-500">— تطبَّق على هذه المادة فقط</span></h3>
+        <h3 className="flex flex-wrap items-center font-semibold">أوزان {subjectName}<Info title="أوزان المادة">هذه الأوزان تخص هذه المادة فقط وتتقدّم على الأوزان العامة في الإعدادات، للنصفين. «الرجوع للأوزان العامة» يلغيها.</Info> <span className="text-xs font-normal text-zinc-500">— تطبَّق على هذه المادة فقط</span></h3>
         <button onClick={onClose} className="text-zinc-400 hover:text-zinc-700" aria-label="إغلاق">✕</button>
       </div>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

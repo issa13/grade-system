@@ -27,6 +27,8 @@ export type GradeRow = {
   p1: Result; p2: Result; m1: Result; pr1: Result; sem1: Result;
   p3: Result; p4: Result; m2: Result; pr2: Result; sem2: Result;
   final: Result;
+  /** العلامة حتى الآن: من العلامات الموجودة فقط (للإحصائيات قبل اكتمال السنة). */
+  current: number | null;
 };
 
 type G = Settings["grading"];
@@ -154,11 +156,32 @@ export function computeRow(
     final = nc ? "NC" : den === 0 ? null : num / den;
   }
 
+  // العلامة حتى الآن: نفس المعادلة لكن بالعلامات الموجودة فقط
+  const partialSem = (pa: Component, pb: Component, m: Component, g: G): number | null => {
+    const ps = [n(pa), n(pb)].filter((v): v is number => typeof v === "number");
+    const mm = n(m);
+    let num = 0, den = 0;
+    if (ps.length) { num += (ps.reduce((a, b) => a + b, 0) / ps.length) * g.periodic_weight; den += g.periodic_weight; }
+    if (typeof mm === "number") { num += mm * g.midterm_weight; den += g.midterm_weight; }
+    return den ? num / den : null;
+  };
+  let cNum = 0, cDen = 0;
+  for (const [v, w] of [
+    [partialSem("p1", "p2", "m1", gs(1)), gf.sem1_weight],
+    [partialSem("p3", "p4", "m2", gs(2)), gf.sem2_weight],
+    [typeof pr1 === "number" ? pr1 : null, gf.progress1_weight],
+    [typeof pr2 === "number" ? pr2 : null, gf.progress2_weight],
+  ] as [number | null, number][]) {
+    if (v !== null) { cNum += v * w; cDen += w; }
+  }
+  const current = cDen ? roundTo(cNum / cDen, gf) : null;
+
   const r = (v: Result, g: G): Result => (typeof v === "number" ? roundTo(v, g) : v);
   return {
     p1: show("p1"), p2: show("p2"), m1: show("m1"), pr1: show("pr1"), sem1: r(sem1, gs(1)),
     p3: show("p3"), p4: show("p4"), m2: show("m2"), pr2: show("pr2"), sem2: r(sem2, gs(2)),
     final: r(final, gf),
+    current: typeof final === "number" ? roundTo(final, gf) : current,
   };
 }
 

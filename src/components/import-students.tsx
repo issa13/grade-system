@@ -106,13 +106,13 @@ export function ImportStudents({ open, onClose, classId, existing, onDone }: {
         {table.length > 0 && (
           <>
             <div className="grid gap-3 sm:grid-cols-4">
-              <Field label="سطر العناوين">
+              <Field label="سطر العناوين" info="السطر الذي فيه أسماء الأعمدة (مثل «الاسم»). كل ما تحته يُعتبر طلاباً. في ملف كشف العلامات يُكتشف تلقائياً.">
                 <Select className="w-full" value={headerRow} onChange={(e) => setHeaderRow(Number(e.target.value))}>
                   <option value={-1}>لا يوجد</option>
                   {table.slice(0, 20).map((r, i) => <option key={i} value={i}>السطر {i + 1}: {r.filter(Boolean).slice(0, 3).join(" | ")}</option>)}
                 </Select>
               </Field>
-              <Field label="عمود الاسم *"><Select className="w-full" value={nameCol} onChange={(e) => setNameCol(Number(e.target.value))}>{colOptions}</Select></Field>
+              <Field label="عمود الاسم *" info="العمود الذي فيه أسماء الطلاب. الأسطر التي فيها أرقام فقط تُتجاهل."><Select className="w-full" value={nameCol} onChange={(e) => setNameCol(Number(e.target.value))}>{colOptions}</Select></Field>
               <Field label="عمود الرقم"><Select className="w-full" value={numCol} onChange={(e) => setNumCol(Number(e.target.value))}>{colOptions}</Select></Field>
               <Field label="عمود الملاحظات"><Select className="w-full" value={notesCol} onChange={(e) => setNotesCol(Number(e.target.value))}>{colOptions}</Select></Field>
             </div>

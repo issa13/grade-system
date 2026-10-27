@@ -8,6 +8,7 @@ import { cx } from "@/components/ui";
 
 const NAV = [
   { href: "/", label: "الصفوف", icon: "▦" },
+  { href: "/stats", label: "إحصائياتي", icon: "▤" },
   { href: "/settings", label: "الإعدادات", icon: "⚙" },
   { href: "/trash", label: "سلة المحذوفات", icon: "🗑" },
   { href: "/audit", label: "سجل التعديلات", icon: "↺" },
@@ -25,7 +26,7 @@ function Shell({ children }: { children: React.ReactNode }) {
   const nav = (
     <nav className="flex flex-col gap-1">
       {NAV.map((n) => {
-        const active = n.href === "/" ? path === "/" || path.startsWith("/class") || path.startsWith("/subject") || path.startsWith("/session") : path.startsWith(n.href);
+        const active = n.href === "/" ? path === "/" || path.startsWith("/class") || path.startsWith("/subject") || path.startsWith("/session") || path.startsWith("/student") : path.startsWith(n.href);
         return (
           <Link key={n.href} href={n.href} onClick={() => setOpen(false)}
             className={cx("flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium",

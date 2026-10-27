@@ -7,9 +7,10 @@ import type { ClassRow, Student, Subject } from "@/lib/types";
 import { GradeGrid } from "@/components/grade-grid";
 import { SessionsTab } from "@/components/sessions-tab";
 import { AssignmentsTab } from "@/components/assignments-tab";
+import { SubjectStatsView } from "@/components/stats-views";
 import { Empty, PageHeader, Spinner, Tabs } from "@/components/ui";
 
-type Tab = "grades" | "sessions" | "assignments";
+type Tab = "grades" | "sessions" | "assignments" | "stats";
 
 export default function SubjectPage() {
   return <Suspense fallback={null}><Inner /></Suspense>;
@@ -54,15 +55,17 @@ function SubjectPageView({ id }: { id: string }) {
       <div className="mb-2 text-sm text-zinc-500">
         <Link href="/" className="hover:underline">الصفوف</Link> ‹ <Link href={`/class?id=${cls.id}`} className="hover:underline">{cls.name}</Link> ‹ {subject.name}
       </div>
-      <PageHeader title={<span className="flex items-center gap-2"><span className="h-6 w-1.5 rounded-full" style={{ background: subject.color }} />{subject.name}</span>} sub={`${cls.name} · ${students.length} طالب`} />
+      <PageHeader info="الحصص: البرنامج الأسبوعي وتسجيل كل حصة. كشف العلامات: إدخال العلامات (والأوزان الخاصة بالمادة). الواجبات: متابعة الواجبات. الإحصائيات: أرقام ورسوم عن المادة." title={<span className="flex items-center gap-2"><span className="h-6 w-1.5 rounded-full" style={{ background: subject.color }} />{subject.name}</span>} sub={`${cls.name} · ${students.length} طالب`} />
       <Tabs<Tab> value={tab} onChange={change} tabs={[
         { id: "sessions", label: "الحصص" },
         { id: "grades", label: "كشف العلامات" },
         { id: "assignments", label: "الواجبات" },
+        { id: "stats", label: "الإحصائيات" },
       ]} />
       {tab === "grades" && <GradeGrid subject={subject} className={cls.name} students={students} />}
       {tab === "sessions" && <SessionsTab subject={subject} students={students} />}
       {tab === "assignments" && <AssignmentsTab subject={subject} students={students} />}
+      {tab === "stats" && <SubjectStatsView subject={subject} students={students} />}
     </div>
   );
 }

@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase/client";
 import { fmtDate, weekdayOf } from "@/lib/dates";
 import { WEEKDAYS, type ClassRow, type Session, type SessionRecord, type Student, type Subject } from "@/lib/types";
 import { useSettings } from "@/components/settings-provider";
+import { Info } from "@/components/info";
 import { Button, Card, Empty, Input, Spinner, cx, useToast } from "@/components/ui";
 
 const blank = (session_id: string, student_id: string): SessionRecord => ({
@@ -185,12 +186,14 @@ function SessionPageView({ id }: { id: string }) {
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <Input className="max-w-sm" placeholder="موضوع الحصة (اختياري)" defaultValue={session.topic ?? ""} onBlur={(e) => updateSession({ topic: e.target.value || null })} />
         <Button size="sm" variant="secondary" onClick={() => bulk(() => ({ absence: null, late: false }), "الكل حاضر")}>✓ الكل حاضر</Button>
+        <Info title="أزرار سريعة">«الكل حاضر» يمسح الغياب والتأخير لكل الطلاب وينشئ لهم تسجيلاً (حتى تُحسب الحصة). «الكل أنجز الوظيفة» يضع ✓ للحاضرين. «قفل الحصة» يمنع التعديل بالخطأ.</Info>
         <Button size="sm" variant="secondary" onClick={() => bulk((r) => ({ homework: r.absence ? r.homework : "done" }), "تم")}>الكل أنجز الوظيفة</Button>
         <Button size="sm" variant="secondary" onClick={undo}>↶ تراجع</Button>
         <Button size="sm" variant={session.locked ? "primary" : "ghost"} onClick={() => updateSession({ locked: !session.locked })}>{session.locked ? "🔒 مقفلة" : "قفل الحصة"}</Button>
       </div>
 
       <div className="flex flex-wrap gap-4 text-sm text-zinc-600 dark:text-zinc-400">
+        <span className="flex items-center">الأزرار<Info title="كيف أسجّل؟">اضغط على {L.participation} أو {L.disruption} لزيادة العدد، و − للإنقاص. {L.absent}: ضغطة = بدون عذر، ضغطتين = بعذر، ثلاث = حاضر. {L.homework}: ✓ منجزة ← ✗ غير منجزة ← فارغ. كل شيء يُحفظ تلقائياً ويدخل في حساب السعي.</Info></span>
         <span>{L.absent}: <b>{stats.absent}</b></span>
         <span>{L.late}: <b>{stats.late}</b></span>
         <span>{L.participation}: <b>{stats.part}</b></span>

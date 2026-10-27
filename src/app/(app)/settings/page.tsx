@@ -6,6 +6,7 @@ import { COMPONENTS, DEFAULT_SETTINGS, SECTION_TITLES, type EditableKey, type Se
 import { semesterFor, today } from "@/lib/dates";
 import { downloadJson } from "@/lib/excel";
 import { WEEKDAYS } from "@/lib/types";
+import { Info } from "@/components/info";
 import { Button, Card, Field, Input, Modal, PageHeader, Select, Spinner, confirmAction, cx, useToast } from "@/components/ui";
 
 const FIELD_LABELS: Record<string, string> = {
@@ -24,6 +25,55 @@ const FIELD_LABELS: Record<string, string> = {
   show_semesters: "إظهار معدل كل نصف", show_final: "إظهار العلامة النهائية", show_overall: "إظهار المعدل العام",
   show_behavior: "إظهار ملخص السلوك والحضور", show_band: "إظهار التقدير",
   trash_retention_days: "مدة الاحتفاظ بالمحذوفات (أيام)",
+};
+
+// شرح كل خانة (يظهر عند الضغط على ⓘ)
+const FIELD_INFO: Record<string, string> = {
+  teacher_name: "يظهر في القائمة الجانبية وفي صفحة الإحصائيات.",
+  school_name: "يظهر في أعلى الموقع وفي صفحة علامات الطالب.",
+  logo_url: "رابط صورة الشعار (يبدأ بـ https). يظهر في صفحة علامات الطالب.",
+  theme: "فاتح، داكن، أو حسب إعداد جهازك.",
+  date_format: "صيغة عرض التواريخ.",
+  school_year: "اسم السنة الدراسية، يظهر في العناوين والتصدير.",
+  start: "أول يوم دراسة. تُستعمل لتوليد حصص النصف الأول.",
+  sem1_end: "آخر يوم في النصف الأول. كل حصة أو واجب بعد هذا التاريخ يُحسب للنصف الثاني، والموقع يعرف منه «النصف الحالي».",
+  end: "آخر يوم دراسة. تُستعمل لتوليد حصص النصف الثاني.",
+  weekend_days: "لا تُولَّد حصص في هذه الأيام.",
+  breaks: "العطل الرسمية: لا تُولَّد حصص بين تاريخ البداية والنهاية.",
+  scale: "كل العلامات تُحوَّل إلى هذا الرقم قبل الحساب وعند التصدير (عادةً 20).",
+  max_periodic: "العلامة القصوى التي تُدخلها لامتحانات الفصل (1 إلى 4). إذا كانت مختلفة عن 20 تُحوَّل تلقائياً.",
+  max_midterm: "العلامة القصوى التي تُدخلها لامتحانَي النصف.",
+  max_progress: "العلامة القصوى للسعي (اليدوي أو المحسوب).",
+  periodic_weight: "معدل النصف = (معدل الفصلين × هذا الوزن + النصف × وزن النصف) ÷ مجموع الوزنين. مثال: 15 و 25 يعني الفصول 37.5% والنصف 62.5%.",
+  midterm_weight: "وزن امتحان النصف داخل معدل النصف (انظر الخانة السابقة).",
+  sem1_weight: "مساهمة معدل النصف 1 في النهائي. يُفضَّل أن يكون مجموع الأوزان الأربعة = 1.",
+  sem2_weight: "مساهمة معدل النصف 2 في النهائي.",
+  progress1_weight: "مساهمة السعي 1 في النهائي.",
+  progress2_weight: "مساهمة السعي 2 في النهائي.",
+  decimals: "عدد الأرقام بعد الفاصلة في النتائج (مثلاً 2 → 13.69).",
+  rounding: "تقريب عادي (13.685 → 13.69)، للأسفل (→ 13.68)، أو للأعلى.",
+  pass_mark: "أي علامة أقل منها تظهر بالأحمر وتُحسب «راسب» في الإحصائيات.",
+  missing_policy: "إذا نقصت علامة: إظهار NC حتى تكتمل العلامات، أو اعتبار العلامة الناقصة صفراً.",
+  progress_mode: "محسوب: السعي = العلامة الأساسية + نقاط السلوك والوظائف (من قسم نقاط السلوك). إذا أدخلت السعي يدوياً لطالب، قيمتك تتقدّم على المحسوبة.",
+  base: "علامة السعي التي يبدأ منها كل طالب قبل إضافة أو خصم النقاط.",
+  participation: "تُضاف لكل مشاركة مسجلة في الحصة.",
+  disruption: "قيمة سالبة تُخصم لكل مرة شغب.",
+  late: "قيمة سالبة تُخصم لكل تأخير.",
+  absent_unexcused: "قيمة سالبة تُخصم لكل غياب بدون عذر.",
+  absent_excused: "عادةً 0: الغياب بعذر لا يُخصم.",
+  hw_done: "تُضاف لكل وظيفة منجزة (من الحصص أو من تبويب الواجبات).",
+  hw_missing: "تُخصم لكل وظيفة غير منجزة.",
+  participation_max_per_session: "أقصى عدد مشاركات يمكن تسجيله للطالب في حصة واحدة (0 = بلا حد).",
+  late_threshold_minutes: "للتذكير فقط: بعد كم دقيقة يُعتبر الطالب متأخراً.",
+  excused_counts_as_absent: "هل يُحسب الغياب بعذر غياباً في نسبة الحضور.",
+  components: "العلامات المشطوبة لا تظهر للطالب (مثلاً امتحان لم تُعلن نتيجته بعد). النهائي يبقى NC عنده حتى تُظهرها.",
+  show_semesters: "إظهار معدل النصف 1 و 2 في صفحة الطالب.",
+  show_final: "إظهار العلامة النهائية لكل مادة.",
+  show_overall: "إظهار المعدل العام لكل المواد في أعلى الصفحة.",
+  show_behavior: "إظهار عدد المشاركات والشغب والتأخير والغياب والوظائف.",
+  show_band: "إظهار التقدير (ممتاز، جيد جداً...).",
+  bands: "كل علامة ≥ الحد الأدنى تأخذ هذا التقدير. الترتيب لا يهم.",
+  trash_retention_days: "العناصر المحذوفة تبقى في سلة المحذوفات هذه المدة ثم تُحذف نهائياً.",
 };
 
 const LABEL_NAMES: Record<string, string> = {
@@ -51,7 +101,7 @@ export default function SettingsPage() {
   if (!loaded) return <Spinner />;
   return (
     <div>
-      <PageHeader title="الإعدادات" sub="كل القيم قابلة للتعديل وتُحفظ في قاعدة البيانات" />
+      <PageHeader info="كل قيم الموقع هنا: لا شيء ثابت في الكود. اضغط ⓘ بجانب أي خانة لمعرفة ماذا تفعل." title="الإعدادات" sub="كل القيم قابلة للتعديل وتُحفظ في قاعدة البيانات" />
       <div className="grid gap-6 lg:grid-cols-[200px_1fr]">
         <nav className="flex gap-1 overflow-x-auto lg:flex-col">
           {(Object.keys(SECTION_TITLES) as EditableKey[]).map((k) => (
@@ -143,7 +193,7 @@ function SectionEditor<K extends EditableKey>({ k, initial }: { k: K; initial: S
   return (
     <Card>
       <div className="mb-4 flex items-center justify-between gap-2">
-        <h2 className="text-lg font-semibold">{SECTION_TITLES[k]}</h2>
+        <h2 className="flex items-center text-lg font-semibold">{SECTION_TITLES[k]}<Info title="الحفظ وإعادة الافتراضي">لا يُحفظ أي تغيير قبل الضغط على «حفظ». «إعادة للافتراضي» يرجع هذا القسم فقط إلى القيم الأصلية.{isCalc(k) ? " عند حفظ هذا القسم يسألك الموقع: هل يطبَّق التغيير على النصف الحالي فقط أم على السنة كلها." : ""}</Info></h2>
         <div className="flex gap-2">
           <Button variant="ghost" size="sm" onClick={onReset}>إعادة للافتراضي</Button>
           <Button size="sm" disabled={!dirty} onClick={onSave}>حفظ</Button>
@@ -168,7 +218,7 @@ function SectionEditor<K extends EditableKey>({ k, initial }: { k: K; initial: S
           if (key === "weekend_days") {
             const arr = (val as number[]) ?? [];
             return (
-              <Field key={key} label="أيام العطلة الأسبوعية">
+              <Field key={key} label="أيام العطلة الأسبوعية" info={FIELD_INFO.weekend_days}>
                 <div className="flex flex-wrap gap-1">
                   {WEEKDAYS.map((d, i) => (
                     <button key={i} type="button" onClick={() => set(key, arr.includes(i) ? arr.filter((x) => x !== i) : [...arr, i])}
@@ -183,7 +233,7 @@ function SectionEditor<K extends EditableKey>({ k, initial }: { k: K; initial: S
           if (key === "components") {
             const arr = (val as string[]) ?? [];
             return (
-              <Field key={key} label="العلامات الظاهرة للطالب">
+              <Field key={key} label="العلامات الظاهرة للطالب" info={FIELD_INFO.components}>
                 <div className="flex flex-wrap gap-1">
                   {COMPONENTS.map((c) => (
                     <button key={c} type="button" onClick={() => set(key, arr.includes(c) ? arr.filter((x) => x !== c) : [...arr, c])}
@@ -197,7 +247,7 @@ function SectionEditor<K extends EditableKey>({ k, initial }: { k: K; initial: S
           }
           if (ENUMS[key]) {
             return (
-              <Field key={key} label={label}>
+              <Field key={key} label={label} info={k === "labels" ? "غيّر الاسم كما تريد أن يظهر في كل الموقع وفي التصدير وصفحة الطالب." : FIELD_INFO[key]}>
                 <Select className="w-full" value={String(val)} onChange={(e) => set(key, e.target.value)}>
                   {ENUMS[key].map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
                 </Select>
@@ -208,20 +258,20 @@ function SectionEditor<K extends EditableKey>({ k, initial }: { k: K; initial: S
             return (
               <label key={key} className="flex items-center gap-2 text-sm">
                 <input type="checkbox" className="h-4 w-4 accent-brand-500" checked={!!val} onChange={(e) => set(key, e.target.checked)} />
-                {label}
+                {label}{FIELD_INFO[key] && <Info title={label}>{FIELD_INFO[key]}</Info>}
               </label>
             );
           }
           if (typeof def[key] === "number") {
             return (
-              <Field key={key} label={label}>
+              <Field key={key} label={label} info={k === "labels" ? "غيّر الاسم كما تريد أن يظهر في كل الموقع وفي التصدير وصفحة الطالب." : FIELD_INFO[key]}>
                 <Input type="number" step="any" value={val as number} onChange={(e) => set(key, e.target.value === "" ? 0 : Number(e.target.value))} />
               </Field>
             );
           }
           const isDate = ["start", "sem1_end", "end"].includes(key);
           return (
-            <Field key={key} label={label}>
+            <Field key={key} label={label} info={k === "labels" ? "غيّر الاسم كما تريد أن يظهر في كل الموقع وفي التصدير وصفحة الطالب." : FIELD_INFO[key]}>
               <Input type={isDate ? "date" : "text"} value={(val as string) ?? ""} onChange={(e) => set(key, e.target.value)} />
             </Field>
           );
@@ -245,7 +295,7 @@ function SectionEditor<K extends EditableKey>({ k, initial }: { k: K; initial: S
 function BreaksEditor({ value, onChange }: { value: Settings["year"]["breaks"]; onChange: (v: Settings["year"]["breaks"]) => void }) {
   return (
     <div className="sm:col-span-2">
-      <div className="mb-1 text-sm font-medium">العطل</div>
+      <div className="mb-1 flex items-center text-sm font-medium">العطل<Info title="العطل">{FIELD_INFO.breaks}</Info></div>
       <div className="space-y-2">
         {value.map((b, i) => (
           <div key={i} className="flex flex-wrap gap-2">
@@ -264,7 +314,7 @@ function BreaksEditor({ value, onChange }: { value: Settings["year"]["breaks"]; 
 function BandsEditor({ value, onChange }: { value: Settings["grading"]["bands"]; onChange: (v: Settings["grading"]["bands"]) => void }) {
   return (
     <div className="sm:col-span-2">
-      <div className="mb-1 text-sm font-medium">سلّم التقديرات (من الحد الأدنى وما فوق)</div>
+      <div className="mb-1 flex items-center text-sm font-medium">سلّم التقديرات (من الحد الأدنى وما فوق)<Info title="سلّم التقديرات">{FIELD_INFO.bands}</Info></div>
       <div className="space-y-2">
         {value.map((b, i) => (
           <div key={i} className="flex flex-wrap items-center gap-2">

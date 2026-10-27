@@ -11,9 +11,11 @@ import { bandFor, fmt, overallAverage } from "@/lib/grades";
 import type { ClassRow, Student, Subject } from "@/lib/types";
 import { useSettings } from "@/components/settings-provider";
 import { ImportStudents } from "@/components/import-students";
+import { ClassStatsView } from "@/components/stats-views";
+import { Info } from "@/components/info";
 import { Button, Card, Empty, Field, Input, Modal, PageHeader, Spinner, Tabs, confirmAction, cx, useToast } from "@/components/ui";
 
-type Tab = "students" | "subjects" | "summary";
+type Tab = "students" | "subjects" | "summary" | "stats";
 
 export default function ClassPage() {
   return <Suspense fallback={null}><Inner /></Suspense>;
@@ -44,15 +46,17 @@ function ClassPageView({ id }: { id: string }) {
   return (
     <div>
       <div className="mb-2 text-sm text-zinc-500"><Link href="/" className="hover:underline">الصفوف</Link> ‹ {cls.name}</div>
-      <PageHeader title={cls.name} sub={`${cls.school_year ?? ""} · ${students.filter((s) => s.active).length} طالب · ${subjects.length} مادة`} />
+      <PageHeader info="الطلاب: إضافة وترتيب ومشاركة الروابط. المواد: كل مادة لها حصص وكشف علامات. ملخص العلامات: النهائي والمعدل العام لكل طالب. الإحصائيات: أرقام ورسوم عن الصف." title={cls.name} sub={`${cls.school_year ?? ""} · ${students.filter((s) => s.active).length} طالب · ${subjects.length} مادة`} />
       <Tabs<Tab> value={tab} onChange={setTab} tabs={[
         { id: "students", label: "الطلاب" },
         { id: "subjects", label: "المواد" },
         { id: "summary", label: "ملخص العلامات" },
+        { id: "stats", label: "الإحصائيات" },
       ]} />
       {tab === "students" && <StudentsTab cls={cls} students={students} reload={load} />}
       {tab === "subjects" && <SubjectsTab classId={cls.id} subjects={subjects} reload={load} />}
       {tab === "summary" && <SummaryTab cls={cls} students={students.filter((s) => s.active)} subjects={subjects} />}
+      {tab === "stats" && <ClassStatsView cls={cls} students={students.filter((s) => s.active)} subjects={subjects} />}
     </div>
   );
 }
@@ -66,6 +70,43 @@ function StudentsTab({ cls, students, reload }: { cls: ClassRow; students: Stude
   const [move, setMove] = useState<Student | null>(null);
   const [classes, setClasses] = useState<ClassRow[]>([]);
   const [filter, setFilter] = useState("");
+  // ترتيب الطلاب (سحب وإفلات)
+  const [order, setOrder] = useState<Student[]>(students);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [overId, setOverId] = useState<string | null>(null);
+  useEffect(() => { setOrder(students); }, [students]);
+
+  async function persistOrder(next: Student[], prev: Student[], msg = "تم حفظ الترتيب") {
+    setOrder(next);
+    const changed = next.map((st, i) => ({ st, i: i + 1 })).filter(({ st, i }) => st.sort_order !== i);
+    if (!changed.length) return;
+    const results = await Promise.all(changed.map(({ st, i }) => supabase().from("students").update({ sort_order: i }).eq("id", st.id)));
+    const err = results.find((x) => x.error)?.error;
+    if (err) { toast({ text: err.message, kind: "err" }); setOrder(prev); return; }
+    toast({ text: msg, kind: "ok", action: { label: "تراجع", run: async () => {
+      await Promise.all(prev.map((st, i) => supabase().from("students").update({ sort_order: i + 1 }).eq("id", st.id)));
+      reload();
+    } } });
+    reload();
+  }
+  function moveTo(fromId: string, toId: string) {
+    const from = order.findIndex((x) => x.id === fromId), to = order.findIndex((x) => x.id === toId);
+    if (from < 0 || to < 0 || from === to) return;
+    const next = [...order];
+    const [m] = next.splice(from, 1);
+    next.splice(to, 0, m);
+    persistOrder(next, order);
+  }
+  function step(st: Student, d: -1 | 1) {
+    const i = order.findIndex((x) => x.id === st.id);
+    const j = i + d;
+    if (j < 0 || j >= order.length) return;
+    moveTo(st.id, order[j].id);
+  }
+  function sortAlpha() {
+    if (!confirmAction("ترتيب الطلاب أبجدياً؟ (يمكن التراجع)")) return;
+    persistOrder([...order].sort((a, b) => a.full_name.localeCompare(b.full_name, "ar")), order, "رُتّب الطلاب أبجدياً");
+  }
 
   useEffect(() => {
     supabase().from("classes").select("*").is("deleted_at", null).neq("id", cls.id).then(({ data }) => setClasses((data ?? []) as ClassRow[]));
@@ -122,13 +163,15 @@ function StudentsTab({ cls, students, reload }: { cls: ClassRow; students: Stude
     }], `طلاب ${cls.name}.xlsx`);
   }
 
-  const shown = students.filter((s) => !filter || s.full_name.includes(filter));
+  const shown = order.filter((s) => !filter || s.full_name.includes(filter));
+  const canDrag = !filter;
 
   return (
     <div>
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <Input placeholder="بحث عن طالب…" value={filter} onChange={(e) => setFilter(e.target.value)} className="max-w-xs" />
         <div className="flex-1" />
+        <Button variant="secondary" onClick={sortAlpha} disabled={students.length < 2}>ترتيب أبجدي</Button>
         <Button variant="secondary" onClick={exportList}>تصدير القائمة</Button>
         <Button variant="secondary" onClick={() => setImportOpen(true)}>استيراد Excel</Button>
         <Button variant="secondary" onClick={() => setBulk("")}>لصق أسماء</Button>
@@ -137,21 +180,46 @@ function StudentsTab({ cls, students, reload }: { cls: ClassRow; students: Stude
 
       {students.length === 0 ? <Empty>لا يوجد طلاب. أضف طالباً أو استورد ملف Excel.</Empty> : (
         <Card className="table-scroll p-0">
-          <table className="sheet w-full text-sm">
+          <table className="sheet w-full text-sm [--c1w:3.5rem]">
             <thead>
               <tr>
-                <th className="sticky-c1 p-3 text-right font-medium">#</th>
-                <th className="sticky-c2 p-3 text-right font-medium">الاسم</th>
+                <th className="sticky-c1 p-3 text-right font-medium">#<Info title="ترتيب الطلاب">اسحب الطالب من المقبض ⠿ وأفلته في المكان الذي تريده، أو استعمل السهمين ▲▼. هذا الترتيب يُستعمل في كشف العلامات وتسجيل الحصص والتصدير. السحب متوقف أثناء البحث.</Info></th>
+                <th className="sticky-c2 p-3 text-right font-medium">الاسم<Info title="صفحة الطالب">اضغط على اسم الطالب لرؤية إحصائياته: معدله، ترتيبه، حضوره وسلوكه في كل مادة.</Info></th>
                 <th className="p-3 text-right font-medium">الرقم</th>
-                <th className="p-3 text-right font-medium">رابط العلامات</th>
+                <th className="p-3 text-right font-medium">رابط العلامات<Info title="رابط العلامات">لكل طالب رابط خاص يرى فيه علاماته فقط ويتحدّث مباشرة. «تجديد» يُنشئ رابطاً جديداً ويوقف القديم، «تعطيل» يوقف الرابط مؤقتاً. لا يحتاج الطالب إلى حساب.</Info></th>
                 <th className="p-3 text-right font-medium"></th>
               </tr>
             </thead>
             <tbody>
               {shown.map((s, i) => (
-                <tr key={s.id} className={cx(!s.active && "text-zinc-400")}>
-                  <td className="sticky-c1 p-3 text-zinc-400">{i + 1}</td>
-                  <td className="sticky-c2 whitespace-nowrap p-3 font-medium">{s.full_name}{!s.active && <span className="ms-2 text-xs text-zinc-500">(غير فعّال)</span>}</td>
+                <tr key={s.id}
+                  draggable={canDrag && dragId !== null}
+                  onDragStart={(e) => { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", s.id); }}
+                  onDragOver={(e) => { if (!dragId) return; e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (overId !== s.id) setOverId(s.id); }}
+                  onDrop={(e) => { e.preventDefault(); if (dragId) moveTo(dragId, s.id); setDragId(null); setOverId(null); }}
+                  onDragEnd={() => { setDragId(null); setOverId(null); }}
+                  className={cx(!s.active && "text-zinc-400", dragId === s.id && "opacity-40", overId === s.id && dragId !== s.id && "[&>td]:!bg-brand-50 dark:[&>td]:!bg-brand-700/30")}>
+                  <td className="sticky-c1 p-1 text-zinc-400">
+                    <div className="flex items-center gap-0.5">
+                      {canDrag && (
+                        <span
+                          className="cursor-grab touch-none select-none px-0.5 text-base text-zinc-400 hover:text-zinc-700 active:cursor-grabbing"
+                          title="اسحب لتغيير الترتيب"
+                          onMouseDown={() => setDragId(s.id)}
+                          onMouseUp={() => setDragId(null)}
+                        >⠿</span>
+                      )}
+                      <span className="tabular-nums">{i + 1}</span>
+                    </div>
+                  </td>
+                  <td className="sticky-c2 whitespace-nowrap p-3 font-medium">
+                    {canDrag && (
+                      <span className="me-2 inline-flex flex-col align-middle text-[9px] leading-none text-zinc-400">
+                        <button aria-label="تحريك للأعلى" className="hover:text-zinc-800 disabled:opacity-30" disabled={i === 0} onClick={() => step(s, -1)}>▲</button>
+                        <button aria-label="تحريك للأسفل" className="hover:text-zinc-800 disabled:opacity-30" disabled={i === shown.length - 1} onClick={() => step(s, 1)}>▼</button>
+                      </span>
+                    )}
+                    <Link href={`/student?id=${s.id}`} className="hover:text-brand-600 hover:underline">{s.full_name}</Link>{!s.active && <span className="ms-2 text-xs text-zinc-500">(غير فعّال)</span>}</td>
                   <td className="p-3">{s.student_number}</td>
                   <td className="p-3">
                     <div className="flex flex-wrap gap-1">
@@ -186,7 +254,7 @@ function StudentsTab({ cls, students, reload }: { cls: ClassRow; students: Stude
         <form onSubmit={save} className="space-y-3">
           <Field label="الاسم الكامل"><Input autoFocus required value={edit?.full_name ?? ""} onChange={(e) => setEdit({ ...edit, full_name: e.target.value })} /></Field>
           <Field label="رقم الطالب (اختياري)"><Input value={edit?.student_number ?? ""} onChange={(e) => setEdit({ ...edit, student_number: e.target.value })} /></Field>
-          <Field label="ملاحظات"><Input value={edit?.notes ?? ""} onChange={(e) => setEdit({ ...edit, notes: e.target.value })} /></Field>
+          <Field label="ملاحظات" info="ملاحظة خاصة بك، لا تظهر للطالب. تظهر في صفحة إحصائيات الطالب."><Input value={edit?.notes ?? ""} onChange={(e) => setEdit({ ...edit, notes: e.target.value })} /></Field>
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="secondary" onClick={() => setEdit(null)}>إلغاء</Button>
             <Button>حفظ</Button>
@@ -268,7 +336,7 @@ function SubjectsTab({ classId, subjects, reload }: { classId: string; subjects:
           <Field label="اسم المادة"><Input autoFocus required value={edit?.name ?? ""} onChange={(e) => setEdit({ ...edit, name: e.target.value })} /></Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="اللون"><Input type="color" className="h-10 p-1" value={edit?.color ?? "#1f7a68"} onChange={(e) => setEdit({ ...edit, color: e.target.value })} /></Field>
-            <Field label="الوزن في المعدل العام"><Input type="number" step="0.1" min="0" value={edit?.weight ?? 1} onChange={(e) => setEdit({ ...edit, weight: Number(e.target.value) })} /></Field>
+            <Field label="الوزن في المعدل العام" info="المعدل العام = معدل علامات المواد حسب الوزن. مادة وزنها 2 تُحسب ضعف مادة وزنها 1."><Input type="number" step="0.1" min="0" value={edit?.weight ?? 1} onChange={(e) => setEdit({ ...edit, weight: Number(e.target.value) })} /></Field>
           </div>
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="secondary" onClick={() => setEdit(null)}>إلغاء</Button>
