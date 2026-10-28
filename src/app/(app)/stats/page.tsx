@@ -10,6 +10,8 @@ import type { ClassRow, Session, Student, Subject } from "@/lib/types";
 import { useSettings } from "@/components/settings-provider";
 import { BarList, Distribution, RankList, Section, StatTile, Tiles, fmtPct } from "@/components/charts";
 import { Empty, PageHeader, Spinner } from "@/components/ui";
+import { DiffCell } from "@/components/compare-views";
+import { classCompare, diffOf, hasSemester2 } from "@/lib/compare";
 
 type ClassData = { cls: ClassRow; students: Student[]; subjects: Subject[]; data: Record<string, SubjectGrades> };
 
@@ -115,6 +117,26 @@ export default function TeacherStats() {
                 ))}
               </tbody>
             </table>
+          </Section>
+          <Section title={`${L.term1} مقابل ${L.term2}`} info="لكل صف: المعدل العام في كل نصف والفرق. النصف غير المكتمل يُحسب «حتى الآن» (*). تظهر بعد إدخال أول علامة من النصف الثاني.">
+            {per.some((p) => hasSemester2(p.subjects, p.data)) ? (
+              <table className="w-full text-sm">
+                <thead className="text-xs text-zinc-500"><tr><th className="py-1 text-right font-medium">الصف</th><th className="font-medium">{L.term1}</th><th className="font-medium">{L.term2}</th><th className="font-medium">الفرق</th></tr></thead>
+                <tbody>
+                  {per.map((p) => {
+                    const c = classCompare(p.students, p.subjects, p.data, settings);
+                    return (
+                      <tr key={p.cls.id} className="border-t border-zinc-100 dark:border-zinc-800">
+                        <td className="py-1.5"><Link href={`/class?id=${p.cls.id}&tab=stats`} className="hover:text-brand-600 hover:underline">{p.cls.name}</Link></td>
+                        <td className="text-center tabular-nums">{c.avgA ?? "—"}</td>
+                        <td className="text-center tabular-nums">{c.avgB ?? "—"}{c.partialB && c.avgB !== null ? "*" : ""}</td>
+                        <td className="text-center"><DiffCell d={diffOf(c.avgA, c.avgB)} /></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            ) : <p className="text-sm text-zinc-500">تظهر المقارنة بعد إدخال أول علامة من النصف الثاني.</p>}
           </Section>
           <Section title="أفضل الطلاب" info="أعلى 10 معدلات عامة في كل الصفوف.">
             <RankList empty="لا توجد معدلات بعد." items={per.flatMap((p) => p.cs.ranked.map((r) => ({ ...r, cls: p.cls })))

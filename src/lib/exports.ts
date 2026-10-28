@@ -1,7 +1,8 @@
 "use client";
 import type { SubjectGrades } from "./class-data";
-import type { Cell, SheetSpec } from "./excel";
-import { overallAverage, type Result } from "./grades";
+import type { Cell, SheetSpec } from "./excel-types";
+import { overallAverage, semesterValue, type Result } from "./grades";
+import { diffOf, overallSem } from "./compare";
 import type { Component, Settings } from "./settings";
 import type { Student, Subject } from "./types";
 
@@ -43,4 +44,24 @@ export function summarySheet(className: string, students: Student[], subjects: S
     return [i + 1, st.full_name, ...finals.map(res), res(overall)];
   });
   return { name: "الملخص", title: `${className} — المعدلات النهائية (من ${s.grading.scale})`, header, rows };
+}
+
+/** ورقة «مقارنة النصفين»: لكل طالب ولكل مادة معدل النصف 1 و 2 والفرق. (* = حتى الآن) */
+export function compareSheet(className: string, students: Student[], subjects: Subject[], grades: Record<string, SubjectGrades>, s: Settings): SheetSpec {
+  const L = s.labels as Record<string, string>;
+  const header = ["الرقم", "الاسم"];
+  for (const sj of subjects) header.push(`${sj.name} — ${L.sem1}`, `${sj.name} — ${L.sem2}`, `${sj.name} — الفرق`);
+  header.push(`المعدل العام — ${L.term1}`, `المعدل العام — ${L.term2}`, "الفرق");
+  const cell = (v: { value: number | null; partial: boolean }): Cell => (v.value === null ? "" : v.partial ? `${v.value}*` : v.value);
+  const rows = students.map((st, i) => {
+    const r: Cell[] = [i + 1, st.full_name];
+    for (const sj of subjects) {
+      const a = semesterValue(grades[sj.id]?.rows[st.id], 1), b = semesterValue(grades[sj.id]?.rows[st.id], 2);
+      r.push(cell(a), cell(b), diffOf(a.value, b.value).value ?? "");
+    }
+    const a = overallSem(st.id, subjects, grades, 1), b = overallSem(st.id, subjects, grades, 2);
+    r.push(cell(a), cell(b), diffOf(a.value, b.value).value ?? "");
+    return r;
+  });
+  return { name: "مقارنة النصفين", title: `${className} — مقارنة ${L.term1} و${L.term2} (* = حتى الآن)`, header, rows, widths: [7, 30, ...header.slice(2).map(() => 12)] };
 }

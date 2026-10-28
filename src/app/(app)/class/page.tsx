@@ -6,11 +6,16 @@ import { Suspense, useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { loadClassBasics, loadSubjectGrades, type SubjectGrades } from "@/lib/class-data";
 import { exportCsv, exportXlsx } from "@/lib/excel";
-import { gradeSheet, summarySheet } from "@/lib/exports";
+import { compareSheet, gradeSheet, summarySheet } from "@/lib/exports";
+import { hasSemester2 } from "@/lib/compare";
+import { overallTrend } from "@/lib/trajectory";
+import { TrendArrow, useAssessmentDates } from "@/components/trend";
 import { bandFor, fmt, overallAverage } from "@/lib/grades";
 import type { ClassRow, Student, Subject } from "@/lib/types";
 import { useSettings } from "@/components/settings-provider";
 import { ImportStudents } from "@/components/import-students";
+import { PhoneEntry, WhatsAppQueue } from "@/components/whatsapp";
+import { normalizePhone, prettyPhone } from "@/lib/whatsapp";
 import { ClassStatsView } from "@/components/stats-views";
 import { Info } from "@/components/info";
 import { Button, Card, Empty, Field, Input, Modal, PageHeader, Spinner, Tabs, confirmAction, cx, useToast } from "@/components/ui";
@@ -22,12 +27,13 @@ export default function ClassPage() {
 }
 
 function Inner() {
-  const id = useSearchParams().get("id") ?? "";
-  return <ClassPageView key={id} id={id} />;
+  const q = useSearchParams();
+  const id = q.get("id") ?? "";
+  return <ClassPageView key={id} id={id} openPhones={q.get("phones") === "1"} initialTab={(q.get("tab") as Tab) || "students"} />;
 }
 
-function ClassPageView({ id }: { id: string }) {
-  const [tab, setTab] = useState<Tab>("students");
+function ClassPageView({ id, openPhones, initialTab }: { id: string; openPhones: boolean; initialTab: Tab }) {
+  const [tab, setTab] = useState<Tab>(initialTab);
   const [cls, setCls] = useState<ClassRow | null>(null);
   const [students, setStudents] = useState<Student[] | null>(null);
   const [subjects, setSubjects] = useState<Subject[]>([]);
@@ -45,15 +51,16 @@ function ClassPageView({ id }: { id: string }) {
 
   return (
     <div>
-      <div className="mb-2 text-sm text-zinc-500"><Link href="/" className="hover:underline">الصفوف</Link> ‹ {cls.name}</div>
-      <PageHeader info="الطلاب: إضافة وترتيب ومشاركة الروابط. المواد: كل مادة لها حصص وكشف علامات. ملخص العلامات: النهائي والمعدل العام لكل طالب. الإحصائيات: أرقام ورسوم عن الصف." title={cls.name} sub={`${cls.school_year ?? ""} · ${students.filter((s) => s.active).length} طالب · ${subjects.length} مادة`} />
+      <div className="mb-2 text-sm text-zinc-500"><Link href="/classes" className="hover:underline">الصفوف</Link> ‹ {cls.name}</div>
+      <PageHeader info="الطلاب: إضافة وترتيب ومشاركة الروابط والأرقام. المواد: كل مادة لها حصص وكشف علامات. ملخص العلامات: النهائي والمعدل العام لكل طالب. الإحصائيات: أرقام ورسوم عن الصف." title={cls.name} sub={`${cls.school_year ?? ""} · ${students.filter((s) => s.active).length} طالب · ${subjects.length} مادة`}
+        actions={<Link href={`/report?class=${cls.id}`}><Button variant="secondary">تقارير PDF</Button></Link>} />
       <Tabs<Tab> value={tab} onChange={setTab} tabs={[
         { id: "students", label: "الطلاب" },
         { id: "subjects", label: "المواد" },
         { id: "summary", label: "ملخص العلامات" },
         { id: "stats", label: "الإحصائيات" },
       ]} />
-      {tab === "students" && <StudentsTab cls={cls} students={students} reload={load} />}
+      {tab === "students" && <StudentsTab cls={cls} students={students} reload={load} openPhones={openPhones} />}
       {tab === "subjects" && <SubjectsTab classId={cls.id} subjects={subjects} reload={load} />}
       {tab === "summary" && <SummaryTab cls={cls} students={students.filter((s) => s.active)} subjects={subjects} />}
       {tab === "stats" && <ClassStatsView cls={cls} students={students.filter((s) => s.active)} subjects={subjects} />}
@@ -62,8 +69,18 @@ function ClassPageView({ id }: { id: string }) {
 }
 
 // ======================= الطلاب =======================
-function StudentsTab({ cls, students, reload }: { cls: ClassRow; students: Student[]; reload: () => void }) {
+function StudentsTab({ cls, students, reload, openPhones }: { cls: ClassRow; students: Student[]; reload: () => void; openPhones?: boolean }) {
   const toast = useToast();
+  const { settings } = useSettings();
+  const cc = settings.whatsapp.country_code;
+  const [phonesOpen, setPhonesOpen] = useState(!!openPhones);
+  const [wa, setWa] = useState<Student[] | null>(null);
+  const [sentToday, setSentToday] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    const since = new Date(); since.setHours(0, 0, 0, 0);
+    supabase().from("message_log").select("student_id").gte("sent_at", since.toISOString())
+      .then(({ data }) => setSentToday(new Set((data ?? []).map((x: { student_id: string }) => x.student_id))));
+  }, [wa]);
   const [edit, setEdit] = useState<Partial<Student> | null>(null);
   const [bulk, setBulk] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -117,7 +134,10 @@ function StudentsTab({ cls, students, reload }: { cls: ClassRow; students: Stude
   async function save(e: React.FormEvent) {
     e.preventDefault();
     if (!edit?.full_name) return;
-    const payload = { full_name: edit.full_name.trim(), student_number: edit.student_number || null, notes: edit.notes || null };
+    const rawPhone = (edit.phone ?? "").trim();
+    const phone = rawPhone ? normalizePhone(rawPhone, cc) : null;
+    if (rawPhone && !phone) return toast({ text: "رقم الهاتف غير صالح", kind: "err" });
+    const payload = { full_name: edit.full_name.trim(), student_number: edit.student_number || null, notes: edit.notes || null, phone };
     const { error } = edit.id
       ? await supabase().from("students").update(payload).eq("id", edit.id)
       : await supabase().from("students").insert({ ...payload, class_id: cls.id, sort_order: students.length + 1 });
@@ -171,6 +191,8 @@ function StudentsTab({ cls, students, reload }: { cls: ClassRow; students: Stude
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <Input placeholder="بحث عن طالب…" value={filter} onChange={(e) => setFilter(e.target.value)} className="max-w-xs" />
         <div className="flex-1" />
+        <Button variant="secondary" onClick={() => setWa(students.filter((s) => s.active))} disabled={!students.length}>رسائل الصف</Button>
+        <Button variant="secondary" onClick={() => setPhonesOpen(true)} disabled={!students.length}>إدخال الأرقام{students.some((s) => s.pending_phone) ? ` (${students.filter((s) => s.pending_phone).length} بانتظار الموافقة)` : ""}</Button>
         <Button variant="secondary" onClick={sortAlpha} disabled={students.length < 2}>ترتيب أبجدي</Button>
         <Button variant="secondary" onClick={exportList}>تصدير القائمة</Button>
         <Button variant="secondary" onClick={() => setImportOpen(true)}>استيراد Excel</Button>
@@ -186,6 +208,7 @@ function StudentsTab({ cls, students, reload }: { cls: ClassRow; students: Stude
                 <th className="sticky-c1 p-3 text-right font-medium">#<Info title="ترتيب الطلاب">اسحب الطالب من المقبض ⠿ وأفلته في المكان الذي تريده، أو استعمل السهمين ▲▼. هذا الترتيب يُستعمل في كشف العلامات وتسجيل الحصص والتصدير. السحب متوقف أثناء البحث.</Info></th>
                 <th className="sticky-c2 p-3 text-right font-medium">الاسم<Info title="صفحة الطالب">اضغط على اسم الطالب لرؤية إحصائياته: معدله، ترتيبه، حضوره وسلوكه في كل مادة.</Info></th>
                 <th className="p-3 text-right font-medium">الرقم</th>
+                <th className="p-3 text-right font-medium">الهاتف<Info title="رقم الطالب">لرسائل واتساب (للطالب فقط). «إدخال الأرقام» لإدخالها بسرعة، أو يرسل الطالب رقمه من صفحة علاماته ويظهر هنا للموافقة.</Info></th>
                 <th className="p-3 text-right font-medium">رابط العلامات<Info title="رابط العلامات">لكل طالب رابط خاص يرى فيه علاماته فقط ويتحدّث مباشرة. «تجديد» يُنشئ رابطاً جديداً ويوقف القديم، «تعطيل» يوقف الرابط مؤقتاً. لا يحتاج الطالب إلى حساب.</Info></th>
                 <th className="p-3 text-right font-medium"></th>
               </tr>
@@ -221,6 +244,17 @@ function StudentsTab({ cls, students, reload }: { cls: ClassRow; students: Stude
                     )}
                     <Link href={`/student?id=${s.id}`} className="hover:text-brand-600 hover:underline">{s.full_name}</Link>{!s.active && <span className="ms-2 text-xs text-zinc-500">(غير فعّال)</span>}</td>
                   <td className="p-3">{s.student_number}</td>
+                  <td className="whitespace-nowrap p-3">
+                    {s.phone ? (
+                      <span className="inline-flex items-center gap-1">
+                        <span dir="ltr" className="text-xs tabular-nums text-zinc-600 dark:text-zinc-400">{prettyPhone(s.phone, cc)}</span>
+                        <button className="rounded px-1.5 py-0.5 text-xs text-green-700 hover:bg-green-50 dark:text-green-400 dark:hover:bg-zinc-800" onClick={() => setWa([s])} title="رسالة واتساب">واتساب</button>
+                        {sentToday.has(s.id) && <span className="text-[10px] text-green-600">أُرسلت اليوم</span>}
+                      </span>
+                    ) : s.pending_phone ? (
+                      <button className="text-xs text-amber-700 hover:underline dark:text-amber-400" onClick={() => setPhonesOpen(true)}>رقم بانتظار الموافقة</button>
+                    ) : <button className="text-xs text-zinc-400 hover:underline" onClick={() => setPhonesOpen(true)}>أضف رقماً</button>}
+                  </td>
                   <td className="p-3">
                     <div className="flex flex-wrap gap-1">
                       {s.share_enabled ? (
@@ -254,6 +288,7 @@ function StudentsTab({ cls, students, reload }: { cls: ClassRow; students: Stude
         <form onSubmit={save} className="space-y-3">
           <Field label="الاسم الكامل"><Input autoFocus required value={edit?.full_name ?? ""} onChange={(e) => setEdit({ ...edit, full_name: e.target.value })} /></Field>
           <Field label="رقم الطالب (اختياري)"><Input value={edit?.student_number ?? ""} onChange={(e) => setEdit({ ...edit, student_number: e.target.value })} /></Field>
+          <Field label="هاتف الطالب (واتساب)" info="يُقبل بأي شكل: 03 123 456 أو ‎+961 3 123456. للطالب فقط، لا يظهر في صفحته."><Input dir="ltr" inputMode="tel" placeholder="03 123 456" value={edit?.phone ?? ""} onChange={(e) => setEdit({ ...edit, phone: e.target.value })} /></Field>
           <Field label="ملاحظات" info="ملاحظة خاصة بك، لا تظهر للطالب. تظهر في صفحة إحصائيات الطالب."><Input value={edit?.notes ?? ""} onChange={(e) => setEdit({ ...edit, notes: e.target.value })} /></Field>
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="secondary" onClick={() => setEdit(null)}>إلغاء</Button>
@@ -286,6 +321,8 @@ function StudentsTab({ cls, students, reload }: { cls: ClassRow; students: Stude
         )}
       </Modal>
 
+      {phonesOpen && <PhoneEntry students={students.filter((s) => s.active)} onClose={() => setPhonesOpen(false)} onSaved={reload} />}
+      {wa && <WhatsAppQueue students={wa} classId={cls.id} onClose={() => setWa(null)} />}
       <ImportStudents open={importOpen} onClose={() => setImportOpen(false)} classId={cls.id} existing={students} onDone={reload} />
     </div>
   );
@@ -352,6 +389,7 @@ function SubjectsTab({ classId, subjects, reload }: { classId: string; subjects:
 function SummaryTab({ cls, students, subjects }: { cls: ClassRow; students: Student[]; subjects: Subject[] }) {
   const { settings, loaded, subjectWeights } = useSettings();
   const [grades, setGrades] = useState<Record<string, SubjectGrades> | null>(null);
+  const dates = useAssessmentDates(subjects);
 
   useEffect(() => {
     if (!loaded) return;
@@ -371,10 +409,12 @@ function SummaryTab({ cls, students, subjects }: { cls: ClassRow; students: Stud
   async function exportAll(kind: "xlsx" | "csv") {
     const sum = summarySheet(cls.name, students, subjects, grades!, settings);
     if (kind === "csv") return exportCsv(sum.header, sum.rows, `ملخص ${cls.name}.csv`);
-    await exportXlsx([sum, ...subjects.map((s) => gradeSheet(s, cls.name, students, grades![s.id], settings))], `علامات ${cls.name}.xlsx`);
+    const extra = hasSemester2(subjects, grades!) ? [compareSheet(cls.name, students, subjects, grades!, settings)] : [];
+    await exportXlsx([sum, ...extra, ...subjects.map((s) => gradeSheet(s, cls.name, students, grades![s.id], settings))], `علامات ${cls.name}.xlsx`);
   }
 
   const passed = students.filter((s) => { const o = overall(s); return typeof o === "number" && o >= settings.grading.pass_mark; }).length;
+  const trendIn = subjects.map((sj) => ({ id: sj.id, name: sj.name, weight: Number(sj.weight), entries: grades[sj.id]?.entries ?? {}, dates: dates[sj.id] ?? {}, weights: subjectWeights[sj.id] }));
 
   return (
     <div>
@@ -400,7 +440,7 @@ function SummaryTab({ cls, students, subjects }: { cls: ClassRow; students: Stud
               return (
                 <tr key={st.id}>
                   <td className="sticky-c1 px-2 text-center text-zinc-400">{i + 1}</td>
-                  <td className="sticky-c2 whitespace-nowrap px-2 py-1.5">{st.full_name}</td>
+                  <td className="sticky-c2 whitespace-nowrap px-2 py-1.5"><Link href={`/student?id=${st.id}`} className="hover:text-brand-600 hover:underline">{st.full_name}</Link>{(() => { const t = overallTrend(st.id, trendIn, settings); return t ? <TrendArrow t={t} /> : null; })()}</td>
                   {subjects.map((s) => {
                     const f = grades[s.id]?.rows[st.id]?.final ?? null;
                     return <td key={s.id} className={cx("px-2 text-center tabular-nums", typeof f === "number" && f < settings.grading.pass_mark && "text-red-600")}>{fmt(f)}</td>;

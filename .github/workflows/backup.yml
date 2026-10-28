@@ -1,0 +1,46 @@
+# النسخة الاحتياطية الأسبوعية بالإيميل — كل أحد صباحاً.
+# يمكن تشغيلها يدوياً من تبويب Actions ← Weekly backup ← Run workflow.
+#
+# الأسرار (Settings ← Secrets and variables ← Actions ← تبويب Secrets):
+#   SUPABASE_SERVICE_ROLE_KEY  مفتاح Supabase الكامل للقراءة (Project Settings ← API ← service_role)
+#   SMTP_USER                  بريد Gmail المُرسِل
+#   SMTP_PASS                  «كلمة مرور تطبيق» من Google (تحتاج التحقق بخطوتين)
+#   BACKUP_TO                  البريد الذي تصله النسخة
+# المستودع عام: الملفات تُرسل بالإيميل فقط، ولا تُحفظ في المستودع ولا كـ Artifact، والسجل لا يطبع أي اسم أو علامة.
+name: Weekly backup
+
+on:
+  schedule:
+    # الأحد 06:00 UTC = 8:00 صباحاً بتوقيت بيروت الشتوي (9:00 صيفاً)
+    - cron: "0 6 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: latest
+          cache: npm
+
+      - run: npm ci
+
+      - name: بناء الملفات وإرسال الإيميل
+        run: npx tsx scripts/backup.mjs
+        env:
+          SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          BACKUP_TO: ${{ secrets.BACKUP_TO }}

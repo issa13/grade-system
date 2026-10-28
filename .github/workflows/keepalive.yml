@@ -1,0 +1,50 @@
+# منع توقف Supabase المجاني (يتوقف بعد 7 أيام بدون نشاط):
+# نبضة كل يومين تكتب «وقت آخر نبضة» في قاعدة البيانات (بالمفتاح العام، بدون قراءة أي بيانات).
+#
+# ومنع توقف المهام المجدولة نفسها: GitHub يوقفها بعد 60 يوماً بدون نشاط في المستودع،
+# لذلك مرة كل شهر تضيف هذه المهمة commit فارغاً على فرع منفصل اسمه keepalive
+# (لا يعيد نشر الموقع، لأن النشر يعمل فقط من الفرع main).
+name: Keepalive
+
+on:
+  schedule:
+    - cron: "17 3 */2 * *"   # كل يومين
+    - cron: "41 4 1 * *"     # أول كل شهر: commit على فرع keepalive
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  beat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: نبضة Supabase
+        env:
+          SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+        run: |
+          code=$(curl -sS -o /dev/null -w "%{http_code}" -X POST "$SUPABASE_URL/rest/v1/rpc/keepalive" \
+            -H "apikey: $SUPABASE_ANON_KEY" -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
+            -H "Content-Type: application/json" -d '{}')
+          echo "HTTP $code"
+          test "$code" -ge 200 -a "$code" -lt 300
+
+  branch:
+    # أول كل شهر (أو التشغيل اليدوي): commit فارغ على فرع keepalive
+    if: github.event.schedule == '41 4 1 * *' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+      - name: commit فارغ على فرع keepalive
+        run: |
+          git config user.name "keepalive-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin keepalive --depth=1 && git checkout -B keepalive FETCH_HEAD || git checkout --orphan keepalive
+          git rm -rf --cached . >/dev/null 2>&1 || true
+          git commit --allow-empty -m "keepalive $(date -u +%Y-%m-%d)"
+          git push origin keepalive

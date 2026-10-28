@@ -3,11 +3,17 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { SettingsProvider, useSettings } from "@/components/settings-provider";
-import { supabase } from "@/lib/supabase/client";
-import { cx } from "@/components/ui";
+import { hasStoredSession, supabase } from "@/lib/supabase/client";
+import { getState, startOutbox } from "@/lib/outbox";
+import { clearOfflineCache } from "@/lib/offline-fetch";
+import { cx, confirmAction } from "@/components/ui";
+import { Relogin, SyncIndicator } from "@/components/sync-status";
+import { AlertsProvider, Bell } from "@/components/alerts";
+import { PwaBanners } from "@/components/pwa";
 
 const NAV = [
-  { href: "/", label: "الصفوف", icon: "▦" },
+  { href: "/schedule", label: "البرنامج", icon: "▥" },
+  { href: "/classes", label: "الصفوف", icon: "▦" },
   { href: "/stats", label: "إحصائياتي", icon: "▤" },
   { href: "/settings", label: "الإعدادات", icon: "⚙" },
   { href: "/trash", label: "سلة المحذوفات", icon: "🗑" },
@@ -19,16 +25,26 @@ function Shell({ children }: { children: React.ReactNode }) {
   const { settings } = useSettings();
   const [open, setOpen] = useState(false);
 
+  useEffect(() => { startOutbox(); }, []);
+
   async function logout() {
+    const n = getState().pending;
+    if (n && !confirmAction(`توجد ${n} تغييرات لم تُرسل بعد (بدون إنترنت). إذا خرجت الآن تبقى محفوظة على هذا الجهاز وتُرسل بعد تسجيل الدخول مجدداً. خروج؟`)) return;
+    await clearOfflineCache();
     await supabase().auth.signOut();
   }
 
   const nav = (
     <nav className="flex flex-col gap-1">
-      {NAV.map((n) => {
-        const active = n.href === "/" ? path === "/" || path.startsWith("/class") || path.startsWith("/subject") || path.startsWith("/session") || path.startsWith("/student") : path.startsWith(n.href);
+      {NAV.map((n0) => {
+        // البرنامج هو الصفحة الرئيسية إلا إذا اختار الأستاذ قائمة الصفوف
+        const n = n0.href === "/schedule" && settings.schedule.home === "schedule" ? { ...n0, href: "/" } : n0.href === "/classes" && settings.schedule.home === "classes" ? { ...n0, href: "/" } : n0;
+        const isSchedule = n0.href === "/schedule";
+        const active = isSchedule ? path === "/schedule" || path.startsWith("/session") || (path === "/" && settings.schedule.home === "schedule")
+          : n0.href === "/classes" ? path.startsWith("/class") || path.startsWith("/subject") || path.startsWith("/student") || path.startsWith("/report") || (path === "/" && settings.schedule.home === "classes")
+          : path.startsWith(n.href);
         return (
-          <Link key={n.href} href={n.href} onClick={() => setOpen(false)}
+          <Link key={n0.href} href={n.href} onClick={() => setOpen(false)}
             className={cx("flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium",
               active ? "bg-brand-500 text-white" : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800")}>
             <span className="w-5 text-center" aria-hidden>{n.icon}</span>{n.label}
@@ -44,24 +60,31 @@ function Shell({ children }: { children: React.ReactNode }) {
   const brand = (
     <div className="mb-6 flex items-center gap-3">
       <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-500 text-lg font-bold text-white">ع</div>
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         <div className="truncate font-bold">{settings.profile.school_name || "نظام العلامات"}</div>
         <div className="truncate text-xs text-zinc-500">{settings.profile.teacher_name || "الأستاذ"}</div>
       </div>
+      <Bell />
     </div>
   );
 
   return (
     <div className="min-h-screen lg:flex">
       <aside className="no-print hidden w-60 shrink-0 border-l border-zinc-200 bg-white p-4 lg:block dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="sticky top-4">{brand}{nav}</div>
+        <div className="sticky top-4">{brand}<div className="mb-4 -mt-2"><SyncIndicator /></div>{nav}</div>
       </aside>
-      <header className="no-print flex items-center justify-between border-b border-zinc-200 bg-white px-4 py-3 lg:hidden dark:border-zinc-800 dark:bg-zinc-900">
-        <span className="font-bold">{settings.profile.school_name || "نظام العلامات"}</span>
+      <header className="no-print sticky top-0 z-40 flex items-center gap-2 border-b border-zinc-200 bg-white/95 px-4 py-2 backdrop-blur lg:hidden dark:border-zinc-800 dark:bg-zinc-900/95">
+        <span className="min-w-0 flex-1 truncate font-bold">{settings.profile.school_name || "نظام العلامات"}</span>
+        <SyncIndicator />
+        <Bell />
         <button onClick={() => setOpen(!open)} className="rounded-lg border px-3 py-1 text-sm dark:border-zinc-700" aria-expanded={open}>القائمة</button>
       </header>
       {open && <div className="no-print border-b border-zinc-200 bg-white p-4 lg:hidden dark:border-zinc-800 dark:bg-zinc-900">{nav}</div>}
-      <main className="min-w-0 flex-1 p-4 lg:p-8">{children}</main>
+      <main className="min-w-0 flex-1 p-4 print:p-0 lg:p-8">
+        <PwaBanners />
+        <Relogin />
+        {children}
+      </main>
     </div>
   );
 }
@@ -72,12 +95,14 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   const [ok, setOk] = useState(false);
   useEffect(() => {
     const sb = supabase();
-    sb.auth.getSession().then(({ data }) => {
+    sb.auth.getSession().then(({ data, error }) => {
       if (data.session) setOk(true);
+      // بدون إنترنت: نسمح بالدخول بالجلسة المحفوظة (البيانات من النسخة المحفوظة على الجهاز)
+      else if (hasStoredSession() && (!navigator.onLine || error?.name === "AuthRetryableFetchError")) setOk(true);
       else router.replace("/login");
-    });
+    }).catch(() => { if (hasStoredSession()) setOk(true); else router.replace("/login"); });
     const { data: sub } = sb.auth.onAuthStateChange((event, session) => {
-      if (event === "SIGNED_OUT" || !session) router.replace("/login");
+      if (event === "SIGNED_OUT" || (!session && navigator.onLine && !hasStoredSession())) router.replace("/login");
     });
     return () => sub.subscription.unsubscribe();
   }, [router]);
@@ -89,7 +114,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <AuthGuard>
       <SettingsProvider>
-        <Shell>{children}</Shell>
+        <AlertsProvider>
+          <Shell>{children}</Shell>
+        </AlertsProvider>
       </SettingsProvider>
     </AuthGuard>
   );

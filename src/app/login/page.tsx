@@ -25,7 +25,10 @@ export default function LoginPage() {
     if (mode === "login") {
       const { error } = await sb.auth.signInWithPassword({ email, password });
       if (error) setMsg({ text: "البريد أو كلمة المرور غير صحيحة", ok: false });
-      else router.replace("/");
+      else {
+        try { localStorage.setItem("lastEmail", email); } catch {}
+        router.replace("/");
+      }
     } else if (mode === "signup") {
       const { error } = await sb.auth.signUp({ email, password, options: { emailRedirectTo: absoluteUrl("/") } });
       setMsg(error ? { text: error.message, ok: false } : { text: "تم إنشاء الحساب. افتح بريدك لتأكيده ثم سجّل الدخول.", ok: true });

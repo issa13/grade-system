@@ -29,6 +29,9 @@ export type GradeRow = {
   final: Result;
   /** العلامة حتى الآن: من العلامات الموجودة فقط (للإحصائيات قبل اكتمال السنة). */
   current: number | null;
+  /** معدل كل نصف حتى الآن (بالعلامات الموجودة فقط). */
+  sem1Current: number | null;
+  sem2Current: number | null;
 };
 
 type G = Settings["grading"];
@@ -166,9 +169,11 @@ export function computeRow(
     return den ? num / den : null;
   };
   let cNum = 0, cDen = 0;
+  const ps1 = partialSem("p1", "p2", "m1", gs(1));
+  const ps2 = partialSem("p3", "p4", "m2", gs(2));
   for (const [v, w] of [
-    [partialSem("p1", "p2", "m1", gs(1)), gf.sem1_weight],
-    [partialSem("p3", "p4", "m2", gs(2)), gf.sem2_weight],
+    [ps1, gf.sem1_weight],
+    [ps2, gf.sem2_weight],
     [typeof pr1 === "number" ? pr1 : null, gf.progress1_weight],
     [typeof pr2 === "number" ? pr2 : null, gf.progress2_weight],
   ] as [number | null, number][]) {
@@ -182,7 +187,18 @@ export function computeRow(
     p3: show("p3"), p4: show("p4"), m2: show("m2"), pr2: show("pr2"), sem2: r(sem2, gs(2)),
     final: r(final, gf),
     current: typeof final === "number" ? roundTo(final, gf) : current,
+    sem1Current: ps1 === null ? null : roundTo(ps1, gs(1)),
+    sem2Current: ps2 === null ? null : roundTo(ps2, gs(2)),
   };
+}
+
+/** معدل نصف: كما في كشف العلامات إذا اكتمل، وإلا «حتى الآن» (partial = true). */
+export function semesterValue(row: GradeRow | undefined, sem: 1 | 2): { value: number | null; partial: boolean } {
+  if (!row) return { value: null, partial: false };
+  const full = sem === 1 ? row.sem1 : row.sem2;
+  if (typeof full === "number") return { value: full, partial: false };
+  const cur = sem === 1 ? row.sem1Current : row.sem2Current;
+  return { value: cur, partial: cur !== null };
 }
 
 /** المعدل العام لعدة مواد حسب أوزان المواد. */

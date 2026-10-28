@@ -7,7 +7,7 @@ import type { Session, SessionRecord, Student, Subject } from "./types";
 const S = mergeSettings(null);
 const st = (id: string): Student => ({ id, class_id: "c", full_name: id, student_number: null, notes: null, share_token: id, share_enabled: true, active: true, sort_order: 0, deleted_at: null, created_at: "" });
 const students = [st("a"), st("b"), st("c"), st("d")];
-const row = (final: number | "NC" | null) => ({ p1: null, p2: null, m1: null, pr1: null, sem1: null, p3: null, p4: null, m2: null, pr2: null, sem2: null, final, current: typeof final === "number" ? final : null });
+const row = (final: number | "NC" | null) => ({ p1: null, p2: null, m1: null, pr1: null, sem1: null, p3: null, p4: null, m2: null, pr2: null, sem2: null, final, current: typeof final === "number" ? final : null, sem1Current: null, sem2Current: null });
 const sess = (id: string, date: string, cancelled = false): Session => ({ id, subject_id: "s1", schedule_slot_id: null, date, semester: 1, topic: null, cancelled, locked: false, deleted_at: null });
 const rec = (session_id: string, student_id: string, p: Partial<SessionRecord> = {}): SessionRecord => ({ session_id, student_id, participation: 0, disruption: 0, late: false, absence: null, homework: null, note: null, ...p });
 

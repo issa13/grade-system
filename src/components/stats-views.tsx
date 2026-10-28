@@ -8,6 +8,9 @@ import { COMPONENTS } from "@/lib/settings";
 import { classStats, subjectStats } from "@/lib/stats";
 import type { ClassRow, Student, Subject } from "@/lib/types";
 import { BarList, Distribution, RankList, Section, StatTile, Tiles, fmtPct } from "./charts";
+import { ClassCompare, SubjectCompare } from "./compare-views";
+import { TrendArrow, useAssessmentDates } from "./trend";
+import { overallTrend } from "@/lib/trajectory";
 import { useSettings } from "./settings-provider";
 import { Empty, Spinner } from "./ui";
 
@@ -73,6 +76,7 @@ export function SubjectStatsView({ subject, students }: { subject: Subject; stud
         <Section title="حصص سابقة غير مسجلة" info="حصص مضى تاريخها ولم يُسجَّل فيها أي شيء. اضغط للتسجيل.">
           <RankList items={st.unlogged.slice(0, 8).map((x) => ({ key: x.id, label: fmtDate(x.date), value: <Link href={`/session?id=${x.id}`} className="text-brand-600 hover:underline">تسجيل ←</Link> }))} empty="كل الحصص السابقة مسجلة 👍" />
         </Section>
+        <SubjectCompare students={students} data={data} />
       </div>
     </div>
   );
@@ -82,6 +86,7 @@ export function SubjectStatsView({ subject, students }: { subject: Subject; stud
 export function ClassStatsView({ cls, students, subjects }: { cls: ClassRow; students: Student[]; subjects: Subject[] }) {
   const { settings, loaded, subjectWeights } = useSettings();
   const [data, setData] = useState<Record<string, SubjectGrades> | null>(null);
+  const dates = useAssessmentDates(subjects);
   useEffect(() => {
     if (!loaded) return;
     (async () => {
@@ -97,6 +102,8 @@ export function ClassStatsView({ cls, students, subjects }: { cls: ClassRow; stu
   const cs = classStats(students, subjects, data, settings);
   const g = settings.grading;
   const L = settings.labels;
+  const trendIn = subjects.map((sj) => ({ id: sj.id, name: sj.name, weight: Number(sj.weight), entries: data[sj.id]?.entries ?? {}, dates: dates[sj.id] ?? {}, weights: subjectWeights[sj.id] }));
+  const arrow = (id: string) => { const t = overallTrend(id, trendIn, settings); return t ? <TrendArrow t={t} /> : null; };
 
   return (
     <div className="space-y-4">
@@ -119,7 +126,7 @@ export function ClassStatsView({ cls, students, subjects }: { cls: ClassRow; stu
           <Distribution bands={cs.distribution} />
         </Section>
         <Section title="الترتيب" info="الطلاب حسب المعدل العام. التعادل يأخذ نفس الرتبة.">
-          <RankList items={cs.ranked.slice(0, 10).map((r) => ({ key: r.student.id, label: r.student.full_name, value: r.value, href: studentHref(r.student.id), rank: cs.ranked.filter((x) => x.value > r.value).length + 1 }))} empty="لا توجد معدلات بعد." />
+          <RankList items={cs.ranked.slice(0, 10).map((r) => ({ key: r.student.id, label: <>{r.student.full_name}{arrow(r.student.id)}</>, value: r.value, href: studentHref(r.student.id), rank: cs.ranked.filter((x) => x.value > r.value).length + 1 }))} empty="لا توجد معدلات بعد." />
         </Section>
         <Section title="يحتاجون متابعة" info="مع سبب كل حالة. اضغط على الاسم لرؤية تفاصيل الطالب.">
           <RankList empty="لا يوجد 👍" items={cs.atRisk.slice(0, 12).map((p) => {
@@ -127,7 +134,7 @@ export function ClassStatsView({ cls, students, subjects }: { cls: ClassRow; stu
             if (typeof p.overall === "number" && p.overall < g.pass_mark) reasons.push(`معدل ${p.overall}`);
             if (p.failing.length) reasons.push(`راسب في ${p.failing.map((x) => x.name).join("، ")}`);
             if (p.att.attendanceRate !== null && p.att.attendanceRate < 80) reasons.push(`حضور ${p.att.attendanceRate}%`);
-            return { key: p.student.id, label: p.student.full_name, value: <span className="text-xs text-amber-700 dark:text-amber-400">{reasons.join(" · ")}</span>, href: studentHref(p.student.id) };
+            return { key: p.student.id, label: <>{p.student.full_name}{arrow(p.student.id)}</>, value: <span className="text-xs text-amber-700 dark:text-amber-400">{reasons.join(" · ")}</span>, href: studentHref(p.student.id) };
           })} />
         </Section>
         <Section title={`${L.participation} و${L.disruption} حسب المادة`} info="مجموع المشاركات والشغب في كل مادة، مع عدد الحصص المسجلة.">
@@ -146,6 +153,7 @@ export function ClassStatsView({ cls, students, subjects }: { cls: ClassRow; stu
             </tbody>
           </table>
         </Section>
+        <ClassCompare students={students} subjects={subjects} data={data} />
         <Section title="ملخص الصف" info="أرقام سريعة عن الصف.">
           <ul className="space-y-1 text-sm text-zinc-600 dark:text-zinc-300">
             <li>السنة الدراسية: <b>{cls.school_year ?? settings.year.school_year}</b></li>

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { datesBetween, fmtDate, semesterFor, toISO, today, weekdayOf } from "@/lib/dates";
 import { exportXlsx } from "@/lib/excel";
+import { sessionIdFor } from "@/lib/ids";
 import { WEEKDAYS, type Session, type SessionRecord, type Slot, type Student, type Subject } from "@/lib/types";
 import { useSettings } from "./settings-provider";
 import { Info } from "./info";
@@ -53,11 +54,12 @@ export function SessionsTab({ subject, students }: { subject: Subject; students:
     const rows: Partial<Session>[] = [];
     for (const sl of slots) {
       for (const d of datesBetween(gen.from, gen.to, [sl.weekday], settings)) {
-        if (!existing.has(d + sl.id)) rows.push({ subject_id: subject.id, schedule_slot_id: sl.id, date: d, semester: gen.sem });
+        // نفس المعرّف الذي يستعمله البرنامج الأسبوعي، فلا تتكرر الحصة
+        if (!existing.has(d + sl.id)) rows.push({ id: sessionIdFor(sl.id, d), subject_id: subject.id, schedule_slot_id: sl.id, date: d, semester: gen.sem });
       }
     }
     if (!rows.length) { toast({ text: "لا توجد حصص جديدة لإنشائها", kind: "ok" }); setGen(null); return; }
-    const { error } = await supabase().from("sessions").insert(rows);
+    const { error } = await supabase().from("sessions").upsert(rows, { onConflict: "id", ignoreDuplicates: true });
     if (error) return toast({ text: error.message, kind: "err" });
     toast({ text: `أُنشئت ${rows.length} حصة`, kind: "ok" });
     setGen(null);

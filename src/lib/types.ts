@@ -7,6 +7,7 @@ export type ClassRow = {
 export type Student = {
   id: string; class_id: string; full_name: string; student_number: string | null; notes: string | null;
   share_token: string; share_enabled: boolean; active: boolean; sort_order: number;
+  phone?: string | null; pending_phone?: string | null;
   deleted_at: string | null; created_at: string;
 };
 export type Subject = {
@@ -32,5 +33,9 @@ export type Submission = {
 export type GradeEntry = {
   id?: string; subject_id: string; student_id: string; component: Component; score: number | null; excused: boolean;
 };
+
+export type AssessmentDate = { id?: string; subject_id: string; component: Component; date: string };
+export type AlertState = { key: string; status: "done" | "snoozed"; fingerprint: string | null; snoozed_until: string | null };
+export type MessageLog = { id?: string; student_id: string; sent_at: string; period_from: string | null; period_to: string | null };
 
 export const WEEKDAYS = ["الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];

@@ -1,6 +1,10 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { enqueue } from "@/lib/outbox";
 import { supabase } from "@/lib/supabase/client";
+import { fmtDate } from "@/lib/dates";
+import { isExam } from "@/lib/trajectory";
+import { useSync } from "./sync-status";
 import { loadSubjectGrades } from "@/lib/class-data";
 import type { AggMap } from "@/lib/behavior";
 import { exportCsv, exportXlsx } from "@/lib/excel";
@@ -41,7 +45,7 @@ export function GradeGrid({ subject, className, students }: { subject: Subject; 
   const [entries, setEntries] = useState<Record<string, Entries> | null>(null);
   const [agg, setAgg] = useState<AggMap>({});
   const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const [saving, setSaving] = useState(0);
+  const sync = useSync();
   const undo = useRef<Change[]>([]);
   const g = eff.final.grading;
   const gOf = (c: Component) => eff.sem[SEM_OF[c]].grading;
@@ -53,6 +57,24 @@ export function GradeGrid({ subject, className, students }: { subject: Subject; 
     loadSubjectGrades(subject.id, students, settings, own).then((d) => { setEntries(d.entries); setAgg(d.agg); });
   }, [subject.id, students, settings, loaded, own]);
 
+  // تواريخ الامتحانات (لمسار الطالب وتنبيه «علامات ناقصة»)
+  const [dates, setDates] = useState<Partial<Record<Component, string>>>({});
+  const [dateEdit, setDateEdit] = useState<Component | null>(null);
+  useEffect(() => {
+    supabase().from("assessment_dates").select("component,date").eq("subject_id", subject.id)
+      .then(({ data }) => setDates(Object.fromEntries((data ?? []).map((x: { component: string; date: string }) => [x.component, x.date]))));
+  }, [subject.id]);
+  async function saveDate(comp: Component, date: string) {
+    setDateEdit(null);
+    if ((dates[comp] ?? "") === date) return;
+    setDates((d) => { const n = { ...d }; if (date) n[comp] = date; else delete n[comp]; return n; });
+    const sb = supabase();
+    const { error } = date
+      ? await sb.from("assessment_dates").upsert({ subject_id: subject.id, component: comp, date, updated_at: new Date().toISOString() }, { onConflict: "subject_id,component" })
+      : await sb.from("assessment_dates").delete().match({ subject_id: subject.id, component: comp });
+    if (error) toast({ text: "لم يُحفظ التاريخ: " + error.message, kind: "err" });
+  }
+
   const rows = useMemo(() => {
     const out: Record<string, ReturnType<typeof computeRow>> = {};
     for (const st of students) out[st.id] = computeRow(entries?.[st.id] ?? {}, eff, agg[st.id]);
@@ -61,18 +83,10 @@ export function GradeGrid({ subject, className, students }: { subject: Subject; 
 
   const maxFor = (c: Component) => { const gg = gOf(c); return c.startsWith("pr") ? gg.max_progress : c.startsWith("m") ? gg.max_midterm : gg.max_periodic; };
 
-  const persist = useCallback(async (student: string, comp: Component, val: Entries[Component]) => {
-    setSaving((n) => n + 1);
-    const sb = supabase();
-    const { error } = !val
-      ? await sb.from("grade_entries").delete().match({ subject_id: subject.id, student_id: student, component: comp })
-      : await sb.from("grade_entries").upsert(
-          { subject_id: subject.id, student_id: student, component: comp, score: val.score, excused: !!val.excused, updated_at: new Date().toISOString() },
-          { onConflict: "subject_id,student_id,component" },
-        );
-    setSaving((n) => n - 1);
-    if (error) toast({ text: "لم يتم الحفظ: " + error.message, kind: "err" });
-  }, [subject.id, toast]);
+  // يُحفظ على الجهاز أولاً ثم يُرسل (يعمل بدون إنترنت). المسح = علامة فارغة (حتى «يربح الأحدث» بين جهازين).
+  const persist = useCallback((student: string, comp: Component, val: Entries[Component]) => {
+    enqueue("grade_entries", { subject_id: subject.id, student_id: student, component: comp, score: val?.score ?? null, excused: !!val?.excused });
+  }, [subject.id]);
 
   const setValue = useCallback((student: string, comp: Component, val: Entries[Component], before?: Entries[Component] | null) => {
     if (before !== null) undo.current.push({ student, comp, before, after: val });
@@ -164,7 +178,9 @@ export function GradeGrid({ subject, className, students }: { subject: Subject; 
           كل العلامات من {g.max_periodic === g.max_midterm && g.max_midterm === g.max_progress ? g.max_periodic : `${g.max_periodic} / ${g.max_midterm} / ${g.max_progress}`}
           {g.progress_mode === "behavior" && " · السعي يُحسب من السلوك والوظائف إذا ترك فارغاً"} · اكتب «م» للمعفى
         </span>
-        <span className={cx("ms-2 text-xs", saving ? "text-amber-600" : "text-green-600")}>{saving ? "جارٍ الحفظ…" : "✓ محفوظ"}</span>
+        <span className={cx("ms-2 text-xs", sync.status === "saved" ? "text-green-600" : sync.status === "offline" ? "text-amber-600" : "text-zinc-500")}>
+          {sync.status === "saved" ? "✓ محفوظ" : sync.status === "offline" ? "محفوظ على الجهاز" : "جارٍ الحفظ…"}
+        </span>
         <div className="flex-1" />
         <Button size="sm" variant={own ? "primary" : "secondary"} onClick={() => setShowWeights(!showWeights)}>⚖ أوزان المادة{own ? " (خاصة)" : ""}</Button>
         <Button size="sm" variant="secondary" onClick={doUndo}>↶ تراجع</Button>
@@ -196,7 +212,21 @@ export function GradeGrid({ subject, className, students }: { subject: Subject; 
               <th className="sticky-c1 w-10">#</th>
               <th className="sticky-c2 min-w-[180px] text-right">الاسم<Info title="الاسم">اضغط على الاسم لفتح إحصائيات الطالب. ترتيب الطلاب يُغيَّر من صفحة الصف ← الطلاب (سحب وإفلات).</Info></th>
               {COLS.map((c) => (
-                <th key={c.key} className={cx("min-w-[76px]", !c.input && "bg-brand-50 dark:bg-brand-700/30")}>{L[c.key]}<Info title={L[c.key]}>{COL_INFO(c.key, L, g)}</Info></th>
+                <th key={c.key} className={cx("min-w-[76px]", !c.input && "bg-brand-50 dark:bg-brand-700/30")}>
+                  {L[c.key]}<Info title={L[c.key]}>{COL_INFO(c.key, L, g)}</Info>
+                  {isExam(c.key) && (
+                    <div className="mt-0.5 font-normal">
+                      {dateEdit === c.key ? (
+                        <input type="date" autoFocus defaultValue={dates[c.key] ?? ""} className="w-[8.5rem] rounded border border-zinc-300 bg-white px-1 text-[11px] dark:border-zinc-600 dark:bg-zinc-900"
+                          onBlur={(e) => saveDate(c.key as Component, e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); if (e.key === "Escape") setDateEdit(null); }} />
+                      ) : (
+                        <button onClick={() => setDateEdit(c.key as Component)} className="text-[11px] text-zinc-500 hover:text-brand-600 hover:underline" title="تاريخ الامتحان">
+                          {dates[c.key as Component] ? fmtDate(dates[c.key as Component]!).slice(0, 5) : "+ تاريخ"}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </th>
               ))}
               <th className="w-20">التقدير<Info title="التقدير">حسب علامة النهائي وسلّم التقديرات في الإعدادات ← حساب العلامات.</Info></th>
             </tr>

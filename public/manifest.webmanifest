@@ -1,0 +1,23 @@
+{
+  "name": "نظام العلامات",
+  "short_name": "العلامات",
+  "description": "إدارة علامات الطلاب والحصص والصفوف",
+  "lang": "ar",
+  "dir": "rtl",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#fafafa",
+  "theme_color": "#1f7a68",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "حصة اليوم", "short_name": "حصة اليوم", "url": "./?now=1", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "الصفوف", "short_name": "الصفوف", "url": "./classes/", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "إحصائياتي", "short_name": "إحصائياتي", "url": "./stats/", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] }
+  ]
+}

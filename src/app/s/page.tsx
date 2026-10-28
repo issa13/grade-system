@@ -6,9 +6,10 @@ import { aggregateFromReport } from "@/lib/behavior";
 import { bandFor, computeRow, fmt, overallAverage, type BehaviorAgg, type Entries, type GradeRow } from "@/lib/grades";
 import { effectiveSettings, mergeSettings, subjectKey, type Component, type Settings, type SubjectWeights } from "@/lib/settings";
 import { cx } from "@/components/ui";
+import { normalizePhone } from "@/lib/whatsapp";
 
 type Report = {
-  student: { name: string; number: string | null; class_name: string; school_year: string | null };
+  student: { name: string; number: string | null; class_name: string; school_year: string | null; phone_set?: boolean; phone_pending?: boolean };
   settings: Record<string, unknown>;
   subjects: { id: string; name: string; color: string; weight: number }[];
   entries: { subject_id: string; component: Component; score: number | null; excused: boolean }[];
@@ -79,7 +80,7 @@ function StudentReportView({ token }: { token: string }) {
           <h1 className="text-2xl font-bold">{rep.student.name}</h1>
           <div className="text-sm text-zinc-500">{rep.student.class_name} · {rep.student.school_year ?? s.year.school_year}</div>
         </div>
-        {s.profile.logo_url && <img src={s.profile.logo_url} alt="" className="h-14 w-14 rounded-lg object-contain" />}
+        {(s.report_images.logo || s.profile.logo_url) && <img src={s.report_images.logo || s.profile.logo_url} alt="" className="h-14 w-14 rounded-lg object-contain" />}
       </header>
 
       {V.show_overall && (
@@ -146,10 +147,45 @@ function StudentReportView({ token }: { token: string }) {
         })}
       </div>
 
+      {!rep.student.phone_set && <SendPhone token={token} pending={!!rep.student.phone_pending} countryCode={s.whatsapp.country_code} />}
+
       <footer className="mt-6 flex items-center justify-between text-xs text-zinc-400">
         <span>NC = غير مكتمل · تتحدّث الصفحة تلقائياً{updated && ` · آخر تحديث ${updated.toLocaleTimeString("ar-LB")}`}</span>
         <button className="no-print rounded-lg border border-zinc-300 px-3 py-1 text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300" onClick={() => window.print()}>طباعة / PDF</button>
       </footer>
     </main>
+  );
+}
+
+/** «أرسل رقمك»: الطالب يكتب رقمه بنفسه، ويظهر للأستاذ للموافقة. */
+function SendPhone({ token, pending, countryCode }: { token: string; pending: boolean; countryCode: string }) {
+  const [open, setOpen] = useState(false);
+  const [val, setVal] = useState("");
+  const [state, setState] = useState<"idle" | "sent" | "bad" | "err">(pending ? "sent" : "idle");
+  async function send(e: React.FormEvent) {
+    e.preventDefault();
+    const n = normalizePhone(val, countryCode);
+    if (!n) return setState("bad");
+    const { data, error } = await supabase().rpc("submit_phone", { p_token: token, p_phone: n });
+    setState(error || data === false ? "err" : "sent");
+  }
+  if (state === "sent") return <p className="no-print mt-6 rounded-lg bg-green-50 p-3 text-center text-sm text-green-800 dark:bg-green-950/40 dark:text-green-300">✓ وصل رقمك إلى الأستاذ، بانتظار موافقته.</p>;
+  return (
+    <div className="no-print mt-6 rounded-xl border border-zinc-200 p-4 text-sm dark:border-zinc-800">
+      {!open ? (
+        <button className="text-brand-600 hover:underline" onClick={() => setOpen(true)}>أرسل رقمك</button>
+      ) : (
+        <form onSubmit={send} className="space-y-2">
+          <p className="text-zinc-600 dark:text-zinc-300">اكتب رقم هاتفك (واتساب) حتى يرسل لك الأستاذ ملخصك الأسبوعي. لا يظهر رقمك في هذه الصفحة.</p>
+          <div className="flex gap-2">
+            <input dir="ltr" inputMode="tel" required value={val} onChange={(e) => { setVal(e.target.value); setState("idle"); }} placeholder="03 123 456"
+              className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900" />
+            <button className="rounded-lg bg-brand-500 px-4 py-2 font-medium text-white hover:bg-brand-600">إرسال</button>
+          </div>
+          {state === "bad" && <p className="text-xs text-red-600">الرقم غير صالح.</p>}
+          {state === "err" && <p className="text-xs text-red-600">تعذّر الإرسال، حاول لاحقاً.</p>}
+        </form>
+      )}
+    </div>
   );
 }

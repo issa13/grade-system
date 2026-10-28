@@ -5,6 +5,14 @@ export const COMPONENTS = ["p1", "p2", "m1", "pr1", "p3", "p4", "m2", "pr2"] as 
 export type Component = (typeof COMPONENTS)[number];
 
 export type Band = { min: number; label: string; color: string };
+/** قالب رسالة واتساب الافتراضي (موجّه للطالب). الخانات بين {} تُملأ تلقائياً. */
+export const DEFAULT_WA_TEMPLATE = `مرحبا {الاسم}، هذا ملخصك لهذا الأسبوع:
+• الغياب: {غياب}  • التأخير: {تأخير}
+• المشاركة: {مشاركة}  • وظائف غير منجزة: {وظائف_ناقصة}
+{مواد_تحت_النجاح}
+علاماتك كاملة: {الرابط}
+{اسم_الأستاذ}`;
+
 type RawOverride = { grading?: Record<string, unknown>; behavior?: Record<string, unknown> };
 
 export const DEFAULT_SETTINGS = {
@@ -99,6 +107,47 @@ export const DEFAULT_SETTINGS = {
   data: {
     trash_retention_days: 30,
   },
+  schedule: {
+    home: "schedule" as "schedule" | "classes", // الصفحة الرئيسية: البرنامج الأسبوعي أو قائمة الصفوف
+    now_before_minutes: 10, // «الآن» يبدأ قبل الحصة بـ
+    now_after_minutes: 15, // ويبقى بعد نهايتها بـ
+  },
+  whatsapp: {
+    country_code: "961",
+    period: "last7" as "last7" | "since_last",
+    template: DEFAULT_WA_TEMPLATE,
+  },
+  report: {
+    title: "", // فارغ = «كشف علامات» + اسم الفترة
+    show_rank: false,
+    show_behavior: true,
+    show_note: true,
+  },
+  alerts: {
+    absence_streak_on: true,
+    absence_streak: 3,
+    low_attendance_on: true,
+    low_attendance_rate: 80,
+    low_attendance_min_sessions: 10,
+    unlogged_on: true,
+    unlogged_days: 1,
+    hw_streak_on: true,
+    hw_streak: 3,
+    disruption_on: true,
+    disruption_count: 3,
+    disruption_days: 7,
+    below_pass_on: true,
+    drop_on: true,
+    missing_grades_on: true,
+    missing_grades_days: 7,
+  },
+  trajectory: {
+    drop_points: 3, // هبوط مفاجئ: علامة أقل من معدل العلامات السابقة بهذا العدد أو أكثر
+    trend_window: 3, // الاتجاه يُحسب من آخر هذا العدد من العلامات
+    trend_points: 1, // «يتحسّن» / «يتراجع» إذا تغيّرت أكثر من هذا العدد
+  },
+  // الشعار والتوقيع (صور مصغّرة). التوقيع لا يُرسل أبداً إلى صفحة الطالب.
+  report_images: { logo: "", signature: "" },
   // إعدادات محفوظة لنصف معيّن عندما يختار الأستاذ تطبيق التغيير على النصف الحالي فقط.
   // المفتاح "1" أو "2"، والقيمة = إعدادات ذلك النصف قبل التغيير.
   semester_overrides: {} as Record<string, RawOverride>,
@@ -106,7 +155,7 @@ export const DEFAULT_SETTINGS = {
 
 export type Settings = typeof DEFAULT_SETTINGS;
 export type SettingsKey = keyof Settings;
-export type EditableKey = Exclude<SettingsKey, "semester_overrides">;
+export type EditableKey = Exclude<SettingsKey, "semester_overrides" | "report_images">;
 export type Grading = Settings["grading"];
 export type Behavior = Settings["behavior"];
 export type SemesterOverride = { grading?: Partial<Grading>; behavior?: Partial<Behavior> };
@@ -119,11 +168,16 @@ export const subjectKey = (subjectId: string) => `subject:${subjectId}`;
 export const SECTION_TITLES: Record<EditableKey, string> = {
   profile: "الملف الشخصي",
   year: "السنة الدراسية",
+  schedule: "البرنامج الأسبوعي",
   grading: "حساب العلامات",
   behavior: "نقاط السلوك",
   attendance: "الحضور",
   visibility: "ما يراه الطالب",
   labels: "التسميات",
+  whatsapp: "واتساب",
+  report: "التقرير",
+  alerts: "التنبيهات",
+  trajectory: "المسار",
   data: "البيانات",
 };
 

@@ -17,18 +17,19 @@ export default function SubjectPage() {
 }
 
 function Inner() {
-  const id = useSearchParams().get("id") ?? "";
-  return <SubjectPageView key={id} id={id} />;
+  const q = useSearchParams();
+  const id = q.get("id") ?? "";
+  return <SubjectPageView key={id} id={id} tabParam={q.get("tab") as Tab | null} />;
 }
 
-function SubjectPageView({ id }: { id: string }) {
-  const [tab, setTab] = useState<Tab>("sessions");
+function SubjectPageView({ id, tabParam }: { id: string; tabParam: Tab | null }) {
+  const [tab, setTab] = useState<Tab>(tabParam ?? "sessions");
   const [subject, setSubject] = useState<Subject | null | undefined>(undefined);
   const [cls, setCls] = useState<ClassRow | null>(null);
   const [students, setStudents] = useState<Student[]>([]);
 
   useEffect(() => {
-    try { const t = localStorage.getItem("subjectTab") as Tab | null; if (t) setTab(t); } catch {}
+    if (!tabParam) try { const t = localStorage.getItem("subjectTab") as Tab | null; if (t) setTab(t); } catch {}
     (async () => {
       const { data: s } = await supabase().from("subjects").select("*").eq("id", id).single();
       setSubject((s as Subject) ?? null);
@@ -53,7 +54,7 @@ function SubjectPageView({ id }: { id: string }) {
   return (
     <div>
       <div className="mb-2 text-sm text-zinc-500">
-        <Link href="/" className="hover:underline">الصفوف</Link> ‹ <Link href={`/class?id=${cls.id}`} className="hover:underline">{cls.name}</Link> ‹ {subject.name}
+        <Link href="/classes" className="hover:underline">الصفوف</Link> ‹ <Link href={`/class?id=${cls.id}`} className="hover:underline">{cls.name}</Link> ‹ {subject.name}
       </div>
       <PageHeader info="الحصص: البرنامج الأسبوعي وتسجيل كل حصة. كشف العلامات: إدخال العلامات (والأوزان الخاصة بالمادة). الواجبات: متابعة الواجبات. الإحصائيات: أرقام ورسوم عن المادة." title={<span className="flex items-center gap-2"><span className="h-6 w-1.5 rounded-full" style={{ background: subject.color }} />{subject.name}</span>} sub={`${cls.name} · ${students.length} طالب`} />
       <Tabs<Tab> value={tab} onChange={change} tabs={[

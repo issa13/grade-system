@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
+import { enqueue, overlay } from "@/lib/outbox";
 import { fmtDate, semesterFor, today } from "@/lib/dates";
 import { exportXlsx } from "@/lib/excel";
 import type { Assignment, Student, Subject, Submission } from "@/lib/types";
@@ -32,7 +33,7 @@ export function AssignmentsTab({ subject, students }: { subject: Subject; studen
     if (!sel) return;
     supabase().from("assignment_submissions").select("*").eq("assignment_id", sel.id).then(({ data }) => {
       const m: Record<string, Submission> = {};
-      (data ?? []).forEach((s: Submission) => (m[s.student_id] = s));
+      overlay("assignment_submissions", (data ?? []) as Submission[], (r) => r.assignment_id === sel.id).forEach((s) => (m[s.student_id] = s));
       setSubs(m);
     });
   }, [sel]);
@@ -55,18 +56,14 @@ export function AssignmentsTab({ subject, students }: { subject: Subject; studen
     const cur = subs[st.id] ?? { assignment_id: sel.id, student_id: st.id, status: null, score: null };
     const next = { ...cur, ...patch };
     setSubs((m) => ({ ...m, [st.id]: next }));
-    const { error } = await supabase().from("assignment_submissions").upsert(
-      { assignment_id: sel.id, student_id: st.id, status: next.status, score: next.score, updated_at: new Date().toISOString() },
-      { onConflict: "assignment_id,student_id" },
-    );
-    if (error) toast({ text: error.message, kind: "err" });
+    enqueue("assignment_submissions", { assignment_id: sel.id, student_id: st.id, status: next.status, score: next.score });
   }
 
   async function markAll(status: Submission["status"]) {
     if (!sel) return;
-    const rows = students.map((st) => ({ assignment_id: sel.id, student_id: st.id, status, score: subs[st.id]?.score ?? null, updated_at: new Date().toISOString() }));
+    const rows = students.map((st) => ({ assignment_id: sel.id, student_id: st.id, status, score: subs[st.id]?.score ?? null }));
     setSubs(Object.fromEntries(rows.map((r) => [r.student_id, r])));
-    await supabase().from("assignment_submissions").upsert(rows, { onConflict: "assignment_id,student_id" });
+    rows.forEach((r) => enqueue("assignment_submissions", r));
   }
 
   async function remove(a: Assignment) {

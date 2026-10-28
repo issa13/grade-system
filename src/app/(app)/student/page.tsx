@@ -9,6 +9,12 @@ import { bandFor, fmt, type Result } from "@/lib/grades";
 import { addAtt, attendance, classStats, rankOf, ranking, avg, num, pct, scoreOf, type Attendance } from "@/lib/stats";
 import type { ClassRow, Student, Subject } from "@/lib/types";
 import { useSettings } from "@/components/settings-provider";
+import { WhatsAppQueue } from "@/components/whatsapp";
+import { StudentCompare } from "@/components/compare-views";
+import { TrajectoryChart, WeeklyBars, type LinePoint } from "@/components/trajectory-chart";
+import { overallPoints, overallTrend, subjectPoints, trendOf, weekKey, TREND_ARROW, TREND_LABEL, type Dates, type Exam } from "@/lib/trajectory";
+import { addDays } from "@/lib/schedule";
+import { Select } from "@/components/ui";
 import { BarList, Section, StatTile, Tiles, fmtPct } from "@/components/charts";
 import { Info } from "@/components/info";
 import { Button, Card, Empty, PageHeader, Spinner, cx, useToast } from "@/components/ui";
@@ -21,12 +27,13 @@ function Inner() {
   return <StudentView key={id} id={id} />;
 }
 
-type Loaded = { student: Student; cls: ClassRow; students: Student[]; subjects: Subject[]; data: Record<string, SubjectGrades> };
+type Loaded = { student: Student; cls: ClassRow; students: Student[]; subjects: Subject[]; data: Record<string, SubjectGrades>; dates: Record<string, Dates> };
 
 function StudentView({ id }: { id: string }) {
   const { settings, loaded, subjectWeights } = useSettings();
   const toast = useToast();
   const [d, setD] = useState<Loaded | null | undefined>(undefined);
+  const [wa, setWa] = useState(false);
 
   useEffect(() => {
     if (!loaded) return;
@@ -35,14 +42,17 @@ function StudentView({ id }: { id: string }) {
       if (!st) return setD(null);
       const full = await loadClassFull(st.class_id, settings, subjectWeights);
       if (!full.cls) return setD(null);
-      setD({ student: st as Student, cls: full.cls, students: full.students, subjects: full.subjects, data: full.data });
+      const { data: ad } = await supabase().from("assessment_dates").select("subject_id,component,date").in("subject_id", full.subjects.map((x) => x.id));
+      const dates: Record<string, Dates> = {};
+      for (const x of (ad ?? []) as { subject_id: string; component: Exam; date: string }[]) (dates[x.subject_id] ??= {})[x.component] = x.date;
+      setD({ student: st as Student, cls: full.cls, students: full.students, subjects: full.subjects, data: full.data, dates });
     })();
   }, [id, loaded, settings, subjectWeights]);
 
   if (d === undefined) return <Spinner />;
   if (d === null) return <Empty>الطالب غير موجود.</Empty>;
 
-  const { student, cls, students, subjects, data } = d;
+  const { student, cls, students, subjects, data, dates } = d;
   const g = settings.grading;
   const L = settings.labels as Record<string, string>;
   const pool = students.some((s) => s.id === student.id) ? students : [...students, student];
@@ -52,6 +62,7 @@ function StudentView({ id }: { id: string }) {
   const isSoFar = typeof finalOverall !== "number" && typeof overall === "number";
   const rank = rankOf(cs.ranked, student.id);
   const band = bandFor(overall, settings);
+  const trend = overallTrend(student.id, subjects.map((sj) => ({ id: sj.id, name: sj.name, weight: Number(sj.weight), entries: data[sj.id]?.entries ?? {}, dates: dates[sj.id] ?? {}, weights: subjectWeights[sj.id] })), settings);
 
   let att: Attendance = attendance(undefined);
   for (const sj of subjects) att = addAtt(att, attendance(data[sj.id], student.id));
@@ -80,15 +91,21 @@ function StudentView({ id }: { id: string }) {
   return (
     <div>
       <div className="mb-2 text-sm text-zinc-500">
-        <Link href="/" className="hover:underline">الصفوف</Link> ‹ <Link href={`/class?id=${cls.id}`} className="hover:underline">{cls.name}</Link> ‹ {student.full_name}
+        <Link href="/classes" className="hover:underline">الصفوف</Link> ‹ <Link href={`/class?id=${cls.id}`} className="hover:underline">{cls.name}</Link> ‹ {student.full_name}
       </div>
-      <PageHeader title={student.full_name} sub={<>{cls.name}{student.student_number && ` · رقم ${student.student_number}`}{!student.active && " · غير فعّال"}</>}
-        actions={student.share_enabled ? (
+      <PageHeader title={<>{student.full_name}{trend && <span className={cx("ms-2 text-base font-medium", trend === "up" ? "text-green-700 dark:text-green-400" : trend === "down" ? "text-red-600" : "text-zinc-500")} title={`الاتجاه: ${TREND_LABEL[trend]}`}>{TREND_ARROW[trend]} {TREND_LABEL[trend]}</span>}</>}
+        sub={<>{cls.name}{student.student_number && ` · رقم ${student.student_number}`}{!student.active && " · غير فعّال"}</>}
+        actions={
           <>
-            <Button variant="secondary" onClick={copyLink}>نسخ رابط الطالب</Button>
-            <a href={absoluteUrl(`/s/?t=${student.share_token}`)} target="_blank" rel="noreferrer"><Button variant="secondary">الصفحة كما يراها الطالب</Button></a>
+            <Button variant="secondary" onClick={() => setWa(true)}>رسالة واتساب</Button>
+            <Link href={`/report?class=${cls.id}&student=${student.id}`}><Button variant="secondary">تقرير PDF</Button></Link>
+            {student.share_enabled && <>
+              <Button variant="secondary" onClick={copyLink}>نسخ رابط الطالب</Button>
+              <a href={absoluteUrl(`/s/?t=${student.share_token}`)} target="_blank" rel="noreferrer"><Button variant="secondary">الصفحة كما يراها الطالب</Button></a>
+            </>}
           </>
-        ) : undefined} />
+        } />
+      {wa && <WhatsAppQueue students={[student]} classId={cls.id} onClose={() => setWa(false)} />}
 
       <div className="space-y-4">
         <Tiles>
@@ -158,8 +175,71 @@ function StudentView({ id }: { id: string }) {
             </table>
           </Section>
         </div>
+        <TrajectorySection student={student} pool={pool} subjects={subjects} data={data} dates={dates} />
+        <StudentCompare student={student} subjects={subjects} data={data} />
         {student.notes && <Card><div className="text-sm"><b>ملاحظات:</b> {student.notes}</div></Card>}
       </div>
+    </div>
+  );
+}
+
+/** مسار الطالب عبر الوقت: علامات الامتحانات (لكل مادة أو كل المواد) + رسم صغير بالأسابيع. */
+function TrajectorySection({ student, pool, subjects, data, dates }: { student: Student; pool: Student[]; subjects: Subject[]; data: Record<string, SubjectGrades>; dates: Record<string, Dates> }) {
+  const { settings, subjectWeights } = useSettings();
+  const L = settings.labels as Record<string, string>;
+  const [sel, setSel] = useState<string>("all");
+  const subj = subjects.find((x) => x.id === sel);
+  let points: LinePoint[];
+  if (subj) {
+    const rows = Object.fromEntries(pool.map((p) => [p.id, data[subj.id]?.rows[p.id]]).filter(([, r]) => r));
+    points = subjectPoints(student.id, rows, dates[subj.id] ?? {}, settings).map((p) => ({ key: p.comp, label: L[p.comp], date: p.date, score: p.score, classAvg: p.classAvg, drop: p.drop }));
+  } else {
+    const inp = subjects.map((sj) => ({ id: sj.id, name: sj.name, weight: Number(sj.weight), entries: data[sj.id]?.entries ?? {}, dates: dates[sj.id] ?? {}, weights: subjectWeights[sj.id] }));
+    const name = new Map(subjects.map((x) => [x.id, x.name]));
+    points = overallPoints(student.id, inp, settings).map((p) => ({ key: p.key, label: `${L[p.comp]} — ${name.get(p.subjectId) ?? ""}`, short: L[p.comp], date: p.date, score: p.score }));
+  }
+  const tr = trendOf(points.map((p) => p.score), settings);
+
+  // الأسابيع: غياب، مشاركة، شغب
+  const byWeek = new Map<string, { a: number; p: number; d: number }>();
+  for (const sj of subjects) {
+    const g = data[sj.id];
+    const live = new Map((g?.sessions ?? []).filter((x) => !x.cancelled && !x.deleted_at).map((x) => [x.id, x.date]));
+    for (const r of g?.records ?? []) {
+      if (r.student_id !== student.id || !live.has(r.session_id)) continue;
+      const k = weekKey(live.get(r.session_id)!);
+      const w = byWeek.get(k) ?? { a: 0, p: 0, d: 0 };
+      if (r.absence) w.a++;
+      w.p += r.participation; w.d += r.disruption;
+      byWeek.set(k, w);
+    }
+  }
+  const keys = [...byWeek.keys()].sort();
+  const weeks: string[] = [];
+  if (keys.length) for (let k = keys[0]; k <= keys[keys.length - 1]; k = addDays(k, 7)) weeks.push(k);
+  const series = (f: (w: { a: number; p: number; d: number }) => number) => weeks.map((w) => f(byWeek.get(w) ?? { a: 0, p: 0, d: 0 }));
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
+      <Section title="مسار العلامات" info="النقاط = علامات الامتحانات من 20 حسب التاريخ (تاريخ الامتحان يُضاف من رأس العمود في كشف العلامات، وبدونه يُستعمل الترتيب الطبيعي). الخط الرمادي = معدل الصف في نفس الامتحان. النقطة الحمراء = هبوط مفاجئ. «كل المواد» = المعدل العام حتى الآن بعد كل امتحان."
+        actions={
+          <div className="flex items-center gap-2">
+            {tr && <span className={cx("text-sm font-medium", tr === "up" ? "text-green-700 dark:text-green-400" : tr === "down" ? "text-red-600" : "text-zinc-500")}>{TREND_ARROW[tr]} {TREND_LABEL[tr]}</span>}
+            <Select value={sel} onChange={(e) => setSel(e.target.value)} aria-label="المادة">
+              <option value="all">كل المواد</option>
+              {subjects.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+            </Select>
+          </div>
+        }>
+        <TrajectoryChart points={points} max={settings.grading.scale} pass={settings.grading.pass_mark} showClass={!!subj} />
+      </Section>
+      <Section title="كل أسبوع" info="الغياب والمشاركة والشغب في كل أسبوع (كل المواد).">
+        <WeeklyBars weeks={weeks} rows={[
+          { label: L.absent, values: series((w) => w.a), tone: "bad" },
+          { label: L.participation, values: series((w) => w.p) },
+          { label: L.disruption, values: series((w) => w.d), tone: "bad" },
+        ]} />
+      </Section>
     </div>
   );
 }

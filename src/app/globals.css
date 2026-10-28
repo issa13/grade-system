@@ -59,3 +59,21 @@ tr:hover > .sticky-c1, tr:hover > .sticky-c2 { @apply bg-zinc-50 dark:bg-zinc-80
   .no-print { display: none !important; }
   body { background: white !important; color: black !important; }
 }
+
+/* ألوان الرسوم (لوحة مُتحقق منها لعمى الألوان، فاتح وداكن) */
+:root { --series-1: #2a78d6; --series-2: #eb6834; --chart-muted: #8a8984; --chart-grid: #e7e6e2; --critical: #d03b3b; }
+.dark { --series-1: #3987e5; --series-2: #d95926; --chart-muted: #8e8d87; --chart-grid: #2c2c2a; --critical: #e66767; }
+
+@media print {
+  @page { size: A4; margin: 12mm; }
+}
+
+/* تقرير PDF: صفحة A4 واحدة لكل طالب */
+@media screen and (min-width: 900px) { .report-page { min-height: 297mm; } }
+@media print {
+  .report-pages { display: block; }
+  .report-pages > * + * { margin-top: 0 !important; }
+  .report-page { height: 271mm; min-height: 0 !important; max-width: none; break-after: page; break-inside: avoid; overflow: hidden; color: black; }
+  .report-page:last-child { break-after: auto; }
+  html, body { background: white !important; }
+}

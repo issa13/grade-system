@@ -1,9 +1,12 @@
 "use client";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { supabase } from "@/lib/supabase/client";
-import { fmtDate, weekdayOf } from "@/lib/dates";
+import { loadSessionBundle } from "@/lib/session-data";
+import { enqueue, onSessionRemap } from "@/lib/outbox";
+import { useSync } from "@/components/sync-status";
+import { WhatsAppQueue } from "@/components/whatsapp";
+import { fmtDate, today, weekdayOf } from "@/lib/dates";
 import { WEEKDAYS, type ClassRow, type Session, type SessionRecord, type Student, type Subject } from "@/lib/types";
 import { useSettings } from "@/components/settings-provider";
 import { Info } from "@/components/info";
@@ -26,6 +29,8 @@ function SessionPageView({ id }: { id: string }) {
   const { settings } = useSettings();
   const L = settings.labels;
   const toast = useToast();
+  const router = useRouter();
+  const sync = useSync();
   const [session, setSession] = useState<Session | null | undefined>(undefined);
   const [subject, setSubject] = useState<Subject | null>(null);
   const [cls, setCls] = useState<ClassRow | null>(null);
@@ -34,56 +39,39 @@ function SessionPageView({ id }: { id: string }) {
   const [siblings, setSiblings] = useState<{ prev?: string; next?: string }>({});
   const [focus, setFocus] = useState(0);
   const [noteFor, setNoteFor] = useState<string | null>(null);
-  const [pending, setPending] = useState(0);
-  const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const [waFor, setWaFor] = useState<Student[] | null>(null);
   const history = useRef<SessionRecord[]>([]);
   const latest = useRef<Record<string, SessionRecord>>({});
 
   useEffect(() => {
     (async () => {
-      const sb = supabase();
-      const { data: s } = await sb.from("sessions").select("*").eq("id", id).single();
-      setSession((s as Session) ?? null);
-      if (!s) return;
-      const { data: sj } = await sb.from("subjects").select("*").eq("id", s.subject_id).single();
-      const subj = sj as Subject;
-      setSubject(subj);
-      const [c, st, r, sib] = await Promise.all([
-        sb.from("classes").select("*").eq("id", subj.class_id).single(),
-        sb.from("students").select("*").eq("class_id", subj.class_id).is("deleted_at", null).eq("active", true).order("sort_order").order("full_name"),
-        sb.from("session_records").select("*").eq("session_id", id),
-        sb.from("sessions").select("id,date").eq("subject_id", s.subject_id).is("deleted_at", null).eq("cancelled", false).order("date"),
-      ]);
-      setCls(c.data as ClassRow);
-      setStudents((st.data ?? []) as Student[]);
+      const b = await loadSessionBundle(id);
+      setSession(b?.session ?? null);
+      if (!b) return;
+      setSubject(b.subject);
+      setCls(b.cls);
+      setStudents(b.students);
       const m: Record<string, SessionRecord> = {};
-      (r.data ?? []).forEach((x: SessionRecord) => (m[x.student_id] = x));
+      b.records.forEach((x) => (m[x.student_id] = x));
       setRecs(m);
       latest.current = m;
-      const list = (sib.data ?? []) as { id: string; date: string }[];
-      const i = list.findIndex((x) => x.id === id);
-      setSiblings({ prev: list[i - 1]?.id, next: list[i + 1]?.id });
+      setSiblings(b.siblings);
     })();
   }, [id]);
 
-  const save = useCallback((rec: SessionRecord) => {
-    if (timers.current[rec.student_id]) clearTimeout(timers.current[rec.student_id]);
-    else setPending((n) => n + 1);
-    timers.current[rec.student_id] = setTimeout(async () => {
-      delete timers.current[rec.student_id];
-      const r = latest.current[rec.student_id];
-      const { error } = await supabase().from("session_records").upsert(
-        { session_id: r.session_id, student_id: r.student_id, participation: r.participation, disruption: r.disruption,
-          late: r.late, absence: r.absence, homework: r.homework, note: r.note, updated_at: new Date().toISOString() },
-        { onConflict: "session_id,student_id" },
-      );
-      setPending((n) => n - 1);
-      if (error) toast({ text: "لم يتم الحفظ: " + error.message, kind: "err" });
-    }, 250);
-  }, [toast]);
+  // إذا تبيّن أن الحصة أُنشئت من جهاز آخر بمعرّف مختلف، ننتقل إليها
+  useEffect(() => onSessionRemap((from, to) => { if (from === id) router.replace(`/session?id=${to}`); }), [id, router]);
+
+  const save = useCallback((r: SessionRecord) => {
+    enqueue("session_records", {
+      session_id: r.session_id, student_id: r.student_id, participation: r.participation, disruption: r.disruption,
+      late: r.late, absence: r.absence, homework: r.homework, note: r.note,
+    });
+  }, []);
 
   const patch = useCallback((studentId: string, f: (r: SessionRecord) => Partial<SessionRecord>, record = true) => {
     if (session?.locked) return toast({ text: "الحصة مقفلة", kind: "err" });
+    if (session && session.date > today()) return toast({ text: "لا يمكن تسجيل الحصة قبل يومها", kind: "err" });
     const cur = latest.current[studentId] ?? blank(id, studentId);
     if (record) history.current.push(cur);
     const next = { ...cur, ...f(cur) };
@@ -98,8 +86,8 @@ function SessionPageView({ id }: { id: string }) {
     patch(prev.student_id, () => prev, false);
   }, [patch]);
 
-  async function bulk(f: (r: SessionRecord) => Partial<SessionRecord>, msg: string) {
-    if (session?.locked) return;
+  function bulk(f: (r: SessionRecord) => Partial<SessionRecord>, msg: string) {
+    if (session?.locked || (session && session.date > today())) return;
     const rows = students.map((st) => {
       const cur = latest.current[st.id] ?? blank(id, st.id);
       history.current.push(cur);
@@ -107,16 +95,13 @@ function SessionPageView({ id }: { id: string }) {
     });
     latest.current = Object.fromEntries(rows.map((r) => [r.student_id, r]));
     setRecs(latest.current);
-    const { error } = await supabase().from("session_records").upsert(
-      rows.map(({ id: _i, ...r }) => { void _i; return { ...r, updated_at: new Date().toISOString() }; }),
-      { onConflict: "session_id,student_id" },
-    );
-    toast(error ? { text: error.message, kind: "err" } : { text: msg, kind: "ok" });
+    rows.forEach(save);
+    toast({ text: msg, kind: "ok" });
   }
 
-  async function updateSession(p: Partial<Session>) {
+  function updateSession(p: Partial<Session>) {
     setSession((s) => (s ? { ...s, ...p } : s));
-    await supabase().from("sessions").update(p).eq("id", id);
+    enqueue("sessions", { id, ...p }, "update");
   }
 
   const max = settings.behavior.participation_max_per_session;
@@ -169,7 +154,7 @@ function SessionPageView({ id }: { id: string }) {
   return (
     <div>
       <div className="mb-2 text-sm text-zinc-500">
-        <Link href="/" className="hover:underline">الصفوف</Link> ‹ <Link href={`/class?id=${cls.id}`} className="hover:underline">{cls.name}</Link> ‹ <Link href={`/subject?id=${subject.id}`} className="hover:underline">{subject.name}</Link>
+        <Link href="/schedule" className="hover:underline">البرنامج</Link> ‹ <Link href={`/class?id=${cls.id}`} className="hover:underline">{cls.name}</Link> ‹ <Link href={`/subject?id=${subject.id}`} className="hover:underline">{subject.name}</Link>
       </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
@@ -177,7 +162,9 @@ function SessionPageView({ id }: { id: string }) {
         <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs dark:bg-zinc-800">{session.semester === 1 ? L.term1 : L.term2}</span>
         <button onClick={() => updateSession({ semester: session.semester === 1 ? 2 : 1 })} className="text-xs text-zinc-500 hover:underline">تغيير النصف</button>
         <div className="flex-1" />
-        <span className={cx("text-xs", pending ? "text-amber-600" : "text-green-600")}>{pending ? "جارٍ الحفظ…" : "✓ محفوظ"}</span>
+        <span className={cx("text-xs", sync.status === "saved" ? "text-green-600" : sync.status === "offline" ? "text-amber-600" : "text-zinc-500")}>
+          {sync.status === "saved" ? "✓ محفوظ" : sync.status === "offline" ? "محفوظ على الجهاز — يُرسل عند عودة الإنترنت" : "جارٍ الحفظ…"}
+        </span>
         {siblings.prev && <Link href={`/session?id=${siblings.prev}`}><Button size="sm" variant="secondary">→ السابقة</Button></Link>}
         {siblings.next && <Link href={`/session?id=${siblings.next}`}><Button size="sm" variant="secondary">التالية ←</Button></Link>}
       </div>
@@ -190,6 +177,7 @@ function SessionPageView({ id }: { id: string }) {
         <Button size="sm" variant="secondary" onClick={() => bulk((r) => ({ homework: r.absence ? r.homework : "done" }), "تم")}>الكل أنجز الوظيفة</Button>
         <Button size="sm" variant="secondary" onClick={undo}>↶ تراجع</Button>
         <Button size="sm" variant={session.locked ? "primary" : "ghost"} onClick={() => updateSession({ locked: !session.locked })}>{session.locked ? "🔒 مقفلة" : "قفل الحصة"}</Button>
+        {stats.absent > 0 && <Button size="sm" variant="ghost" onClick={() => setWaFor(students.filter((st) => recs[st.id]?.absence))}>رسالة للغائبين</Button>}
       </div>
 
       <div className="flex flex-wrap gap-4 text-sm text-zinc-600 dark:text-zinc-400">
@@ -235,6 +223,7 @@ function SessionPageView({ id }: { id: string }) {
           })}
         </Card>
       )}
+      {waFor && <WhatsAppQueue students={waFor} classId={cls.id} onClose={() => setWaFor(null)} />}
       <p className="mt-3 text-xs text-zinc-500">
         اختصارات: ↑↓ لاختيار الطالب · 1 {L.participation} (Shift للإنقاص) · 2 {L.disruption} · 3 {L.late} · 4 {L.absent} (بدون عذر ← بعذر ← حاضر) · 5 {L.homework} · N {L.note} · Ctrl+Z تراجع
       </p>
