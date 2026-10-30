@@ -1,5 +1,6 @@
 "use client";
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { Component as ReactComponent, createContext, useCallback, useContext, useEffect, useState, type ErrorInfo, type ReactNode } from "react";
+import { logError } from "@/lib/errors";
 import { Info } from "./info";
 
 export function cx(...c: (string | false | null | undefined)[]) {
@@ -63,7 +64,7 @@ export function Field({ label, children, hint, info }: { label: string; children
 
 export function Card({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <div className={cx("rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900", !/(^|\s)p-\d/.test(className ?? "") && "p-4", className)}>
+    <div className={cx("rounded-xl border border-zinc-200 bg-white shadow-sm break-inside-avoid dark:border-zinc-800 dark:bg-zinc-900 print:shadow-none", !/(^|\s)p-\d/.test(className ?? "") && "p-4", className)}>
       {children}
     </div>
   );
@@ -76,7 +77,7 @@ export function PageHeader({ title, sub, actions, info }: { title: ReactNode; su
         <h1 className="flex items-center text-2xl font-bold">{title}{info && <Info title={typeof title === "string" ? title : undefined}>{info}</Info>}</h1>
         {sub && <div className="mt-1 text-sm text-zinc-500">{sub}</div>}
       </div>
-      {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
+      {actions && <div className="no-print flex flex-wrap gap-2">{actions}</div>}
     </div>
   );
 }
@@ -111,7 +112,7 @@ export function Modal({ open, onClose, title, children, wide }: {
 
 export function Tabs<T extends string>({ tabs, value, onChange }: { tabs: { id: T; label: string }[]; value: T; onChange: (v: T) => void }) {
   return (
-    <div className="mb-4 flex gap-1 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800">
+    <div className="no-print mb-4 flex gap-1 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800">
       {tabs.map((t) => (
         <button
           key={t.id}
@@ -169,4 +170,35 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
 export function confirmAction(msg: string) {
   return typeof window !== "undefined" && window.confirm(msg);
+}
+
+/** عند فشل التحميل: رسالة واضحة وزر «إعادة المحاولة» بدل دائرة تحميل لا تنتهي. */
+export function LoadError({ onRetry, text }: { onRetry?: () => void; text?: string }) {
+  return (
+    <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-center text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+      <p>{text ?? "تعذّر تحميل البيانات."} {typeof navigator !== "undefined" && !navigator.onLine && "لا يوجد اتصال بالإنترنت، ولا توجد نسخة محفوظة على هذا الجهاز."}</p>
+      {onRetry && <Button className="mt-3" variant="secondary" onClick={onRetry}>إعادة المحاولة</Button>}
+    </div>
+  );
+}
+
+/** يمنع أن تختفي الصفحة كلها بسبب خطأ في جزء منها. */
+export class ErrorBoundary extends ReactComponent<{ children: ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null };
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  componentDidCatch(error: Error, info: ErrorInfo) { logError(`${error.message} ${info.componentStack?.split("\n")[1]?.trim() ?? ""}`); }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div className="m-4 rounded-xl border border-red-200 bg-red-50 p-6 text-center text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+        <p className="font-semibold">حدث خطأ في هذه الصفحة.</p>
+        <p className="mt-1 text-xs opacity-80">{this.state.error.message}</p>
+        <p className="mt-1 text-xs opacity-80">بياناتك محفوظة. الخطأ مسجّل في الإعدادات ← البيانات ← «سجل الأخطاء».</p>
+        <div className="mt-3 flex justify-center gap-2">
+          <Button variant="secondary" onClick={() => this.setState({ error: null })}>إعادة المحاولة</Button>
+          <Button variant="ghost" onClick={() => location.reload()}>إعادة تحميل الصفحة</Button>
+        </div>
+      </div>
+    );
+  }
 }

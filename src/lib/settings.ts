@@ -78,6 +78,17 @@ export const DEFAULT_SETTINGS = {
     show_overall: true,
     show_behavior: true,
     show_band: true,
+    // الإحصائيات في رابط الطالب (نفس ما يراه الأستاذ في صفحة الطالب)
+    show_stats_tiles: true,
+    show_stats_table: true,
+    show_bars: true,
+    show_attendance: true,
+    show_trajectory: true,
+    show_weekly: true,
+    show_compare: true,
+    show_class_rank: false, // يحتاج علامات الزملاء (بدون أسماء) لحساب الترتيب
+    show_class_avg: false, // يحتاج علامات الزملاء (بدون أسماء) لحساب معدل الصف
+    allow_pdf: true, // زر «تحميل PDF» في صفحة الطالب
   },
   labels: {
     p1: "الفصل 1",

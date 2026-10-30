@@ -77,3 +77,12 @@ tr:hover > .sticky-c1, tr:hover > .sticky-c2 { @apply bg-zinc-50 dark:bg-zinc-80
   .report-page:last-child { break-after: auto; }
   html, body { background: white !important; }
 }
+
+/* تحميل الإحصائيات PDF: نفس الصفحة، بدون أزرار، وبألوان الطباعة */
+@media print {
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .table-scroll { overflow: visible !important; max-height: none !important; }
+  .sticky-c1, .sticky-c2, .sheet thead th, .sheet tfoot td { position: static !important; box-shadow: none !important; }
+  main { min-width: 0 !important; }
+  select, textarea, input[type="file"] { display: none !important; }
+}

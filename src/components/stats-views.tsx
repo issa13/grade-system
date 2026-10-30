@@ -9,22 +9,28 @@ import { classStats, subjectStats } from "@/lib/stats";
 import type { ClassRow, Student, Subject } from "@/lib/types";
 import { BarList, Distribution, RankList, Section, StatTile, Tiles, fmtPct } from "./charts";
 import { ClassCompare, SubjectCompare } from "./compare-views";
+import { PrintButton, PrintHeader } from "./print";
 import { TrendArrow, useAssessmentDates } from "./trend";
 import { overallTrend } from "@/lib/trajectory";
 import { useSettings } from "./settings-provider";
-import { Empty, Spinner } from "./ui";
+import { Empty, LoadError, Spinner } from "./ui";
+import { logError } from "@/lib/errors";
 
 const studentHref = (id: string) => `/student?id=${id}`;
 
 // ======================= إحصائيات مادة =======================
-export function SubjectStatsView({ subject, students }: { subject: Subject; students: Student[] }) {
+export function SubjectStatsView({ subject, students, className = "" }: { subject: Subject; students: Student[]; className?: string }) {
   const { settings, loaded, subjectWeights } = useSettings();
   const [data, setData] = useState<SubjectGrades | null>(null);
+  const [err, setErr] = useState(false);
+  const [retry, setRetry] = useState(0);
   useEffect(() => {
     if (!loaded) return;
-    loadSubjectGrades(subject.id, students, settings, subjectWeights[subject.id]).then(setData);
-  }, [subject.id, students, settings, loaded, subjectWeights]);
+    setErr(false);
+    loadSubjectGrades(subject.id, students, settings, subjectWeights[subject.id]).then(setData).catch((e) => { logError(e); setErr(true); });
+  }, [subject.id, students, settings, loaded, subjectWeights, retry]);
 
+  if (err) return <LoadError onRetry={() => setRetry((x) => x + 1)} />;
   if (!data) return <Spinner />;
   if (!students.length) return <Empty>لا يوجد طلاب.</Empty>;
   const st = subjectStats(students, data, settings);
@@ -33,6 +39,8 @@ export function SubjectStatsView({ subject, students }: { subject: Subject; stud
 
   return (
     <div className="space-y-4">
+      <PrintHeader title={`إحصائيات ${subject.name}`} sub={className} />
+      <div className="no-print flex justify-end"><PrintButton title={`إحصائيات ${subject.name}${className ? ` - ${className}` : ""}`} size="sm" /></div>
       <Tiles>
         <StatTile label={st.complete === st.count ? "معدل المادة" : "معدل المادة حتى الآن"} value={st.avgFinal ?? "—"} sub={`من ${g.scale} · ${st.complete} من ${st.count} اكتمل ${L.final} عندهم`}
           info={<>متوسط علامة «{L.final}» لكل الطلاب. قبل اكتمال كل العلامات تُستعمل «العلامة حتى الآن»: نفس المعادلة لكن بالعلامات الموجودة فقط.</>} />
@@ -47,7 +55,7 @@ export function SubjectStatsView({ subject, students }: { subject: Subject; stud
           info="الحصص التي تاريخها اليوم أو قبله، وكم منها سُجّل فيها الحضور أو السلوك." />
       </Tiles>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-4 lg:grid-cols-2 print:grid-cols-2">
         <Section title="توزيع التقديرات" info={<>كل طالب حسب علامته على سلّم التقديرات (من الإعدادات). قبل اكتمال كل العلامات تُستعمل «العلامة حتى الآن»: نفس المعادلة لكن بالعلامات الموجودة فقط. NC = لا توجد أي علامة صالحة بعد.</>}>
           <Distribution bands={st.distribution} />
         </Section>
@@ -87,15 +95,21 @@ export function ClassStatsView({ cls, students, subjects }: { cls: ClassRow; stu
   const { settings, loaded, subjectWeights } = useSettings();
   const [data, setData] = useState<Record<string, SubjectGrades> | null>(null);
   const dates = useAssessmentDates(subjects);
+  const [err, setErr] = useState(false);
+  const [retry, setRetry] = useState(0);
   useEffect(() => {
     if (!loaded) return;
     (async () => {
-      const out: Record<string, SubjectGrades> = {};
-      await Promise.all(subjects.map(async (sj) => { out[sj.id] = await loadSubjectGrades(sj.id, students, settings, subjectWeights[sj.id]); }));
-      setData(out);
+      try {
+        setErr(false);
+        const out: Record<string, SubjectGrades> = {};
+        await Promise.all(subjects.map(async (sj) => { out[sj.id] = await loadSubjectGrades(sj.id, students, settings, subjectWeights[sj.id]); }));
+        setData(out);
+      } catch (e) { logError(e); setErr(true); }
     })();
-  }, [subjects, students, settings, loaded, subjectWeights]);
+  }, [subjects, students, settings, loaded, subjectWeights, retry]);
 
+  if (err) return <LoadError onRetry={() => setRetry((x) => x + 1)} />;
   if (!data) return <Spinner />;
   if (!subjects.length) return <Empty>أضف مواد أولاً.</Empty>;
   if (!students.length) return <Empty>لا يوجد طلاب.</Empty>;
@@ -107,6 +121,8 @@ export function ClassStatsView({ cls, students, subjects }: { cls: ClassRow; stu
 
   return (
     <div className="space-y-4">
+      <PrintHeader title={`إحصائيات ${cls.name}`} />
+      <div className="no-print flex justify-end"><PrintButton title={`إحصائيات ${cls.name}`} size="sm" /></div>
       <Tiles>
         <StatTile label="عدد الطلاب" value={students.length} sub={`${subjects.length} مادة`} info="الطلاب الفعّالون في هذا الصف. الطلاب الموقوفون لا يدخلون في الإحصائيات." />
         <StatTile label={cs.complete === students.length ? "المعدل العام للصف" : "المعدل العام حتى الآن"} value={cs.avgOverall ?? "—"} sub={`من ${g.scale} · ${cs.complete} من ${students.length} اكتمل معدلهم`} info="متوسط المعدل العام لكل طالب (المعدل العام = معدل علامات المواد حسب وزن كل مادة). قبل اكتمال كل العلامات تُستعمل «العلامة حتى الآن»: نفس المعادلة لكن بالعلامات الموجودة فقط." />
@@ -114,10 +130,10 @@ export function ClassStatsView({ cls, students, subjects }: { cls: ClassRow; stu
           info={<>الطلاب الذين معدلهم العام ≥ {g.pass_mark}. الطلاب بـ NC لا يدخلون في النسبة.</>} />
         <StatTile label="نسبة الحضور" value={fmtPct(cs.attendance.attendanceRate)} sub={`${cs.attendance.absent + cs.attendance.excused} غياب في كل المواد`} info="كل تسجيلات الحضور في كل مواد الصف." />
         <StatTile label="يحتاجون متابعة" value={cs.atRisk.length} tone={cs.atRisk.length ? "warn" : "good"} sub="راجع القائمة أدناه"
-          info={<>طالب معدله العام تحت {g.pass_mark}، أو راسب في مادة واحدة على الأقل، أو نسبة حضوره أقل من 80%.</>} />
+          info={<>طالب معدله العام تحت {g.pass_mark}، أو راسب في مادة واحدة على الأقل، أو نسبة حضوره أقل من {settings.alerts.low_attendance_rate}% (الإعدادات ← التنبيهات).</>} />
       </Tiles>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-4 lg:grid-cols-2 print:grid-cols-2">
         <Section title="معدل كل مادة" info="متوسط العلامة النهائية في كل مادة. مرّر الفأرة على الشريط لرؤية نسبة النجاح.">
           <BarList max={g.scale} marker={{ value: g.pass_mark, label: `علامة النجاح (${g.pass_mark})` }}
             items={cs.perSubject.map(({ subject, stats }) => ({ key: subject.id, label: subject.name, value: stats.avgFinal, href: `/subject?id=${subject.id}`, color: subject.color, tip: `نسبة النجاح ${fmtPct(stats.passRate)}` }))} />
@@ -133,7 +149,7 @@ export function ClassStatsView({ cls, students, subjects }: { cls: ClassRow; stu
             const reasons: string[] = [];
             if (typeof p.overall === "number" && p.overall < g.pass_mark) reasons.push(`معدل ${p.overall}`);
             if (p.failing.length) reasons.push(`راسب في ${p.failing.map((x) => x.name).join("، ")}`);
-            if (p.att.attendanceRate !== null && p.att.attendanceRate < 80) reasons.push(`حضور ${p.att.attendanceRate}%`);
+            if (p.att.attendanceRate !== null && p.att.attendanceRate < settings.alerts.low_attendance_rate) reasons.push(`حضور ${p.att.attendanceRate}%`);
             return { key: p.student.id, label: <>{p.student.full_name}{arrow(p.student.id)}</>, value: <span className="text-xs text-amber-700 dark:text-amber-400">{reasons.join(" · ")}</span>, href: studentHref(p.student.id) };
           })} />
         </Section>

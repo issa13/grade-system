@@ -2,7 +2,7 @@
 // تحميل بيانات الحصص (تُستعمل في صفحة التسجيل وفي البرنامج الأسبوعي).
 // نفس الطلبات تُستعمل للتحميل المسبق حتى تعمل حصص الأسبوع بدون إنترنت.
 import { supabase } from "./supabase/client";
-import { fetchAll } from "./class-data";
+import { fetchAll, must } from "./class-data";
 import { enqueue, overlay, pendingRows } from "./outbox";
 import { summarize, type RecSummary, type SubjectInfo } from "./schedule";
 import type { ClassRow, Session, SessionRecord, Slot, Student, Subject } from "./types";
@@ -21,12 +21,15 @@ const SESSION_DEFAULTS = { topic: null, cancelled: false, locked: false, deleted
 /** بيانات صفحة تسجيل حصة. تعمل بدون إنترنت إذا فُتحت سابقاً على هذا الجهاز. */
 export async function loadSessionBundle(id: string): Promise<SessionBundle | null> {
   const sb = supabase();
-  const { data: s0 } = await sb.from("sessions").select("*").eq("id", id).maybeSingle();
+  const { data: s0, error: e0 } = await sb.from("sessions").select("*").eq("id", id).maybeSingle();
   const pend = pendingRows("sessions", (r) => r.id === id)[0];
+  if (e0 && !pend) throw new Error(e0.message);
   const session = (pend ? { ...SESSION_DEFAULTS, ...(s0 ?? {}), ...pend } : s0) as Session | null;
   if (!session) return null;
   const subj = await loadSubjectBits(session.subject_id);
   const rec = await sb.from("session_records").select("*").eq("session_id", id);
+  // حصة موجودة ولم نستطع قراءة تسجيلاتها: لا نعرض قائمة فارغة (حتى لا يُكتب فوق التسجيل الحقيقي)
+  if (rec.error && (s0 || !pend)) throw new Error(rec.error.message);
   const records = overlay("session_records", (rec.data ?? []) as SessionRecord[], (r) => r.session_id === id);
   const list = [...subj.siblings];
   if (!list.some((x) => x.id === id) && !session.cancelled) list.push({ id, date: session.date });
@@ -37,16 +40,17 @@ export async function loadSessionBundle(id: string): Promise<SessionBundle | nul
 
 async function loadSubjectBits(subjectId: string) {
   const sb = supabase();
-  const { data: sj } = await sb.from("subjects").select("*").eq("id", subjectId).single();
-  const subject = (sj as Subject) ?? null;
+  const sjr = await sb.from("subjects").select("*").eq("id", subjectId).maybeSingle();
+  const subject = (must(sjr) as Subject) ?? null;
   if (!subject) return { subject: null, cls: null, students: [] as Student[], siblings: [] as { id: string; date: string }[] };
   const [c, st, sib] = await Promise.all([
-    sb.from("classes").select("*").eq("id", subject.class_id).single(),
+    sb.from("classes").select("*").eq("id", subject.class_id).maybeSingle(),
     sb.from("students").select("*").eq("class_id", subject.class_id).is("deleted_at", null).eq("active", true).order("sort_order").order("full_name"),
     sb.from("sessions").select("id,date").eq("subject_id", subjectId).is("deleted_at", null).eq("cancelled", false).order("date"),
   ]);
   const pendSessions = pendingRows("sessions", (r) => r.subject_id === subjectId && !r.cancelled && !!r.date)
     .map((r) => ({ id: String(r.id), date: String(r.date) }));
+  must(c); must(st);
   const siblings = [...((sib.data ?? []) as { id: string; date: string }[])];
   for (const p of pendSessions) if (!siblings.some((x) => x.id === p.id)) siblings.push(p);
   return { subject, cls: (c.data as ClassRow) ?? null, students: (st.data ?? []) as Student[], siblings };
@@ -78,7 +82,7 @@ export async function loadWeek(from: string, to: string) {
     fetchAll((f, t) => sb.from("session_records").select("session_id,student_id,participation,disruption,late,absence,homework,note,sessions!inner(date)")
       .gte("sessions.date", from).lte("sessions.date", to).range(f, t)),
   ]);
-  const offline = !!(sl.error || se.error);
+  must(sl); must(se);
   const slots = ((sl.data ?? []) as (Slot & { subjects: SubjRow })[]).map(({ subjects, ...s }) => ({ ...s, subject: info(subjects) }));
   const subjById = new Map(slots.map((s) => [s.subject.id, s.subject]));
   let sessions: (Session & { subject: SubjectInfo })[] = ((se.data ?? []) as (Session & { subjects: SubjRow })[]).map(({ subjects, ...s }) => {
@@ -102,5 +106,5 @@ export async function loadWeek(from: string, to: string) {
   for (const r of allRecs) (bySession[r.session_id] ??= []).push(r);
   const summaries: Record<string, RecSummary> = {};
   for (const [k, v] of Object.entries(bySession)) summaries[k] = summarize(v);
-  return { slots, sessions, records: allRecs, summaries, offline };
+  return { slots, sessions, records: allRecs, summaries };
 }

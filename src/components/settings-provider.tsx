@@ -1,6 +1,7 @@
 "use client";
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { supabase } from "@/lib/supabase/client";
+import { logError } from "@/lib/errors";
 import { DEFAULT_SETTINGS, mergeSettings, subjectKey, type Settings, type SettingsKey, type SubjectWeights } from "@/lib/settings";
 
 type Ctx = {
@@ -34,9 +35,14 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const [loaded, setLoaded] = useState(false);
   const [subjectWeights, setSubjectWeights] = useState<Record<string, SubjectWeights>>({});
 
+  const [failed, setFailed] = useState(false);
+  const [retry, setRetry] = useState(0);
   useEffect(() => {
     (async () => {
-      const { data } = await supabase().from("settings").select("key,value");
+      const { data, error } = await supabase().from("settings").select("key,value");
+      // بدون الإعدادات الحقيقية تكون كل العلامات المحسوبة خاطئة: لا نكمل بالقيم الافتراضية بصمت
+      if (error) { logError(error.message, "settings"); setFailed(true); return; }
+      setFailed(false);
       const obj: Record<string, unknown> = {};
       (data ?? []).forEach((r: { key: string; value: unknown }) => (obj[r.key] = r.value));
       const sw: Record<string, SubjectWeights> = {};
@@ -46,13 +52,19 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       setSettings(s);
       setLoaded(true);
       applyTheme(s.profile.theme);
-      // تفريغ سلة المحذوفات القديمة
-      const cutoff = new Date(Date.now() - s.data.trash_retention_days * 864e5).toISOString();
-      for (const t of ["students", "subjects", "sessions", "assignments", "classes"]) {
-        await supabase().from(t).delete().lt("deleted_at", cutoff);
-      }
+      // تفريغ سلة المحذوفات القديمة (مرة في اليوم كحد أقصى)
+      try {
+        const day = new Date().toISOString().slice(0, 10);
+        if (navigator.onLine && localStorage.getItem("trashPurged") !== day) {
+          const cutoff = new Date(Date.now() - Math.max(1, s.data.trash_retention_days) * 864e5).toISOString();
+          for (const t of ["students", "subjects", "sessions", "assignments", "classes"]) {
+            await supabase().from(t).delete().lt("deleted_at", cutoff);
+          }
+          localStorage.setItem("trashPurged", day);
+        }
+      } catch (e) { logError(e, "trash"); }
     })();
-  }, []);
+  }, [retry]);
 
   const save = useCallback(async <K extends SettingsKey>(key: K, value: Settings[K]) => {
     const { data: u } = await supabase().auth.getUser();
@@ -91,5 +103,19 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     return null;
   }, []);
 
+  if (failed) return (
+    <div className="flex min-h-screen items-center justify-center p-6">
+      <div className="max-w-sm rounded-xl border border-red-200 bg-red-50 p-6 text-center text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+        <p className="font-semibold">تعذّر تحميل الإعدادات.</p>
+        <p className="mt-1">{navigator.onLine ? "حاول مجدداً بعد قليل." : "لا يوجد اتصال، ولا توجد نسخة محفوظة على هذا الجهاز بعد. افتح الموقع مرة مع إنترنت ليعمل بعدها بدون اتصال."}</p>
+        <button className="mt-3 rounded-lg bg-brand-500 px-4 py-2 text-white" onClick={() => setRetry((x) => x + 1)}>إعادة المحاولة</button>
+      </div>
+    </div>
+  );
   return <SettingsCtx.Provider value={{ settings, loaded, save, reset, subjectWeights, saveSubjectWeights }}>{children}</SettingsCtx.Provider>;
+}
+
+/** إعدادات ثابتة بدون قاعدة بيانات (صفحة الطالب): حتى تعمل نفس مكوّنات الإحصائيات. */
+export function StaticSettingsProvider({ settings, children }: { settings: Settings; children: ReactNode }) {
+  return <SettingsCtx.Provider value={{ settings, loaded: true, save: async () => null, reset: async () => null, subjectWeights: {}, saveSubjectWeights: async () => null }}>{children}</SettingsCtx.Provider>;
 }

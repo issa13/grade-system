@@ -179,7 +179,7 @@ export function classStats(students: Student[], subjects: Subject[], data: Recor
   // طلاب يحتاجون متابعة: معدل تحت النجاح، أو رسوب في مادة، أو حضور أقل من 80%
   const atRisk = perStudent.filter((p) => {
     const o = num(p.overall);
-    return (o !== null && o < s.grading.pass_mark) || p.failing.length > 0 || (p.att.attendanceRate !== null && p.att.attendanceRate < 80);
+    return (o !== null && o < s.grading.pass_mark) || p.failing.length > 0 || (p.att.attendanceRate !== null && p.att.attendanceRate < s.alerts.low_attendance_rate);
   });
   return {
     overall,

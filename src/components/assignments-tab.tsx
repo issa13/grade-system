@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { enqueue, overlay } from "@/lib/outbox";
+import { friendly } from "@/lib/errors";
 import { fmtDate, semesterFor, today } from "@/lib/dates";
 import { exportXlsx } from "@/lib/excel";
 import type { Assignment, Student, Subject, Submission } from "@/lib/types";
@@ -24,19 +25,21 @@ export function AssignmentsTab({ subject, students }: { subject: Subject; studen
   const [edit, setEdit] = useState<Partial<Assignment> | null>(null);
 
   const load = useCallback(async () => {
-    const { data } = await supabase().from("assignments").select("*").eq("subject_id", subject.id).is("deleted_at", null).order("due_date", { ascending: false });
+    const { data, error } = await supabase().from("assignments").select("*").eq("subject_id", subject.id).is("deleted_at", null).order("due_date", { ascending: false });
+    if (error) { toast({ text: friendly(error), kind: "err" }); return; }
     setList((data ?? []) as Assignment[]);
-  }, [subject.id]);
+  }, [subject.id, toast]);
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
     if (!sel) return;
-    supabase().from("assignment_submissions").select("*").eq("assignment_id", sel.id).then(({ data }) => {
+    supabase().from("assignment_submissions").select("*").eq("assignment_id", sel.id).then(({ data, error }) => {
+      if (error) { toast({ text: friendly(error), kind: "err" }); setSel(null); return; }
       const m: Record<string, Submission> = {};
       overlay("assignment_submissions", (data ?? []) as Submission[], (r) => r.assignment_id === sel.id).forEach((s) => (m[s.student_id] = s));
       setSubs(m);
     });
-  }, [sel]);
+  }, [sel, toast]);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -67,7 +70,7 @@ export function AssignmentsTab({ subject, students }: { subject: Subject; studen
   }
 
   async function remove(a: Assignment) {
-    await supabase().from("assignments").update({ deleted_at: new Date().toISOString() }).eq("id", a.id);
+    { const { error: wErr } = await supabase().from("assignments").update({ deleted_at: new Date().toISOString() }).eq("id", a.id); if (wErr) return toast({ text: friendly(wErr), kind: "err" }); }
     setSel(null);
     load();
   }

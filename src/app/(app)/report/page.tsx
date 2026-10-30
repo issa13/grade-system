@@ -3,7 +3,8 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
-import { loadClassFull, type SubjectGrades } from "@/lib/class-data";
+import { loadClassFull, must, type SubjectGrades } from "@/lib/class-data";
+import { logError } from "@/lib/errors";
 import { fmtDate, today } from "@/lib/dates";
 import { bandFor, fmt, semesterValue, type GradeRow } from "@/lib/grades";
 import { overallSem } from "@/lib/compare";
@@ -12,7 +13,7 @@ import type { Component, Settings } from "@/lib/settings";
 import type { ClassRow, Student, Subject } from "@/lib/types";
 import { useSettings } from "@/components/settings-provider";
 import { Info } from "@/components/info";
-import { Button, Card, Empty, PageHeader, Select, Spinner, cx, useToast } from "@/components/ui";
+import { Button, Card, Empty, LoadError, PageHeader, Select, Spinner, cx, useToast } from "@/components/ui";
 
 type Period = "1" | "2" | "year";
 type Data = { cls: ClassRow; students: Student[]; subjects: Subject[]; data: Record<string, SubjectGrades> };
@@ -55,18 +56,23 @@ function ReportView({ classId, studentId }: { classId: string; studentId: string
   const [notes, setNotes] = useState<Record<string, string>>({});
   const saveT = useRef<ReturnType<typeof setTimeout> | null>(null);
   const notesKey = `report_notes:${classId}`;
+  const [err, setErr] = useState(false);
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => { setShow({ rank: R.show_rank, behavior: R.show_behavior, note: R.show_note }); }, [R.show_rank, R.show_behavior, R.show_note]);
   useEffect(() => {
     if (!loaded || !classId) return;
     (async () => {
-      const f = await loadClassFull(classId, settings, subjectWeights);
-      if (!f.cls) return setD(null);
-      setD({ cls: f.cls, students: f.students, subjects: f.subjects, data: f.data });
-      const { data } = await supabase().from("settings").select("value").eq("key", notesKey).maybeSingle();
-      setNotes((data?.value as Record<string, string>) ?? {});
+      try {
+        setErr(false);
+        const f = await loadClassFull(classId, settings, subjectWeights);
+        if (!f.cls) return setD(null);
+        setD({ cls: f.cls, students: f.students, subjects: f.subjects, data: f.data });
+        const n = await supabase().from("settings").select("value").eq("key", notesKey).maybeSingle();
+        setNotes((must(n)?.value as Record<string, string>) ?? {});
+      } catch (e) { logError(e); setErr(true); }
     })();
-  }, [classId, loaded, settings, subjectWeights, notesKey]);
+  }, [classId, loaded, settings, subjectWeights, notesKey, retry]);
 
   function setNote(id: string, text: string) {
     const next = { ...notes, [id]: text };
@@ -82,6 +88,7 @@ function ReportView({ classId, studentId }: { classId: string; studentId: string
 
   const subjects = useMemo(() => (d ? d.subjects.filter((x) => !subjSel || subjSel.has(x.id)) : []), [d, subjSel]);
   if (!classId) return <Empty>اختر صفاً من صفحة الصف ← «تقارير PDF».</Empty>;
+  if (err && !d) return <LoadError onRetry={() => setRetry((x) => x + 1)} />;
   if (d === undefined) return <Spinner />;
   if (d === null) return <Empty>الصف غير موجود.</Empty>;
 
@@ -124,7 +131,7 @@ function ReportView({ classId, studentId }: { classId: string; studentId: string
   return (
     <div>
       <div className="no-print">
-        <div className="mb-2 text-sm text-zinc-500"><Link href="/classes" className="hover:underline">الصفوف</Link> ‹ <Link href={`/class?id=${d.cls.id}`} className="hover:underline">{d.cls.name}</Link> ‹ تقارير PDF</div>
+        <div className="no-print mb-2 text-sm text-zinc-500"><Link href="/classes" className="hover:underline">الصفوف</Link> ‹ <Link href={`/class?id=${d.cls.id}`} className="hover:underline">{d.cls.name}</Link> ‹ تقارير PDF</div>
         <PageHeader title="تقرير PDF لكل طالب" sub={`${d.cls.name} · صفحة A4 لكل طالب`}
           info="اضغط «طباعة / حفظ PDF» ثم اختر «حفظ بصيغة PDF» في نافذة الطباعة. كل طالب في صفحة واحدة. الشعار والتوقيع من الإعدادات ← الملف الشخصي، والقيم الافتراضية من الإعدادات ← التقرير."
           actions={<Button onClick={() => window.print()}>طباعة / حفظ PDF ({list.length} {list.length === 1 ? "صفحة" : "صفحات"})</Button>} />

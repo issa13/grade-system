@@ -10,6 +10,10 @@ import { cx, confirmAction } from "@/components/ui";
 import { Relogin, SyncIndicator } from "@/components/sync-status";
 import { AlertsProvider, Bell } from "@/components/alerts";
 import { PwaBanners } from "@/components/pwa";
+import { SchemaCheck } from "@/components/schema-check";
+import { QuickSearch } from "@/components/quick-search";
+import { logError, friendly } from "@/lib/errors";
+import { ErrorBoundary, useToast } from "@/components/ui";
 
 const NAV = [
   { href: "/schedule", label: "البرنامج", icon: "▥" },
@@ -25,7 +29,23 @@ function Shell({ children }: { children: React.ReactNode }) {
   const { settings } = useSettings();
   const [open, setOpen] = useState(false);
 
+  const toast = useToast();
   useEffect(() => { startOutbox(); }, []);
+  // أي خطأ غير متوقع: يُسجَّل في «سجل الأخطاء» ويظهر للأستاذ برسالة واضحة (مرة كل 5 ثوانٍ كحد أقصى)
+  useEffect(() => {
+    let last = 0;
+    const show = (e: unknown) => {
+      logError(e);
+      if (Date.now() - last < 5000) return;
+      last = Date.now();
+      toast({ text: friendly(e), kind: "err" });
+    };
+    const onErr = (e: ErrorEvent) => show(e.error ?? e.message);
+    const onRej = (e: PromiseRejectionEvent) => show(e.reason);
+    window.addEventListener("error", onErr);
+    window.addEventListener("unhandledrejection", onRej);
+    return () => { window.removeEventListener("error", onErr); window.removeEventListener("unhandledrejection", onRej); };
+  }, [toast]);
 
   async function logout() {
     const n = getState().pending;
@@ -64,26 +84,30 @@ function Shell({ children }: { children: React.ReactNode }) {
         <div className="truncate font-bold">{settings.profile.school_name || "نظام العلامات"}</div>
         <div className="truncate text-xs text-zinc-500">{settings.profile.teacher_name || "الأستاذ"}</div>
       </div>
+      <button onClick={() => window.dispatchEvent(new Event("open-search"))} className="no-print inline-flex h-9 w-9 items-center justify-center rounded-lg text-lg hover:bg-zinc-100 dark:hover:bg-zinc-800" aria-label="بحث عن طالب (Ctrl+K)" title="بحث عن طالب (Ctrl+K)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg></button>
       <Bell />
     </div>
   );
 
   return (
     <div className="min-h-screen lg:flex">
-      <aside className="no-print hidden w-60 shrink-0 border-l border-zinc-200 bg-white p-4 lg:block dark:border-zinc-800 dark:bg-zinc-900">
+      <aside className="no-print hidden w-64 shrink-0 border-l border-zinc-200 bg-white p-4 lg:block dark:border-zinc-800 dark:bg-zinc-900">
         <div className="sticky top-4">{brand}<div className="mb-4 -mt-2"><SyncIndicator /></div>{nav}</div>
       </aside>
       <header className="no-print sticky top-0 z-40 flex items-center gap-2 border-b border-zinc-200 bg-white/95 px-4 py-2 backdrop-blur lg:hidden dark:border-zinc-800 dark:bg-zinc-900/95">
         <span className="min-w-0 flex-1 truncate font-bold">{settings.profile.school_name || "نظام العلامات"}</span>
         <SyncIndicator />
+        <button onClick={() => window.dispatchEvent(new Event("open-search"))} className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-lg hover:bg-zinc-100 dark:hover:bg-zinc-800" aria-label="بحث عن طالب"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg></button>
         <Bell />
         <button onClick={() => setOpen(!open)} className="rounded-lg border px-3 py-1 text-sm dark:border-zinc-700" aria-expanded={open}>القائمة</button>
       </header>
       {open && <div className="no-print border-b border-zinc-200 bg-white p-4 lg:hidden dark:border-zinc-800 dark:bg-zinc-900">{nav}</div>}
       <main className="min-w-0 flex-1 p-4 print:p-0 lg:p-8">
+        <SchemaCheck />
         <PwaBanners />
         <Relogin />
-        {children}
+        <QuickSearch />
+        <ErrorBoundary key={path}>{children}</ErrorBoundary>
       </main>
     </div>
   );

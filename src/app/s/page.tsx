@@ -3,19 +3,15 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { aggregateFromReport } from "@/lib/behavior";
-import { bandFor, computeRow, fmt, overallAverage, type BehaviorAgg, type Entries, type GradeRow } from "@/lib/grades";
-import { effectiveSettings, mergeSettings, subjectKey, type Component, type Settings, type SubjectWeights } from "@/lib/settings";
+import { bandFor, fmt, overallAverage, type BehaviorAgg, type GradeRow } from "@/lib/grades";
+import { mergeSettings, type Component, type Settings } from "@/lib/settings";
+import { buildStudentReport, ME, type Report } from "@/lib/student-report";
+import { classStats } from "@/lib/stats";
 import { cx } from "@/components/ui";
+import { StaticSettingsProvider } from "@/components/settings-provider";
+import { StudentStatsBody, type StudentShow } from "@/components/student-stats";
+import { printPage } from "@/components/print";
 import { normalizePhone } from "@/lib/whatsapp";
-
-type Report = {
-  student: { name: string; number: string | null; class_name: string; school_year: string | null; phone_set?: boolean; phone_pending?: boolean };
-  settings: Record<string, unknown>;
-  subjects: { id: string; name: string; color: string; weight: number }[];
-  entries: { subject_id: string; component: Component; score: number | null; excused: boolean }[];
-  behavior: (BehaviorAgg & { subject_id: string; semester: 1 | 2 })[];
-  assignments: { subject_id: string; semester: 1 | 2; done: number; late: number; missing: number }[];
-};
 
 export default function StudentReport() {
   return <Suspense fallback={null}><Inner /></Suspense>;
@@ -28,14 +24,22 @@ function Inner() {
 
 function StudentReportView({ token }: { token: string }) {
   const [rep, setRep] = useState<Report | null | undefined>(undefined);
+  const [failed, setFailed] = useState(false);
   const [updated, setUpdated] = useState<Date | null>(null);
   const [flash, setFlash] = useState(false);
 
   const load = useCallback(async (live = false) => {
     if (!/^[0-9a-f-]{36}$/i.test(token)) return setRep(null);
-    const { data, error } = await supabase().rpc("get_student_report", { p_token: token });
-    if (error) return setRep(null);
-    setRep((data as Report) ?? null);
+    try {
+      const { data, error } = await supabase().rpc("get_student_report", { p_token: token });
+      // خطأ في الشبكة ≠ رابط غير صالح: نبقي آخر نسخة معروضة
+      if (error) { setFailed(true); return; }
+      setFailed(false);
+      setRep((data as Report) ?? null);
+    } catch {
+      setFailed(true);
+      return;
+    }
     setUpdated(new Date());
     if (live) { setFlash(true); setTimeout(() => setFlash(false), 1500); }
   }, [token]);
@@ -49,6 +53,12 @@ function StudentReportView({ token }: { token: string }) {
     return () => { supabase().removeChannel(ch); clearInterval(poll); document.removeEventListener("visibilitychange", vis); };
   }, [load, token]);
 
+  if (rep === undefined && failed) return (
+    <main className="flex min-h-screen items-center justify-center p-6 text-center">
+      <div><div className="mb-2 text-4xl">📶</div><h1 className="text-xl font-bold">تعذّر التحميل</h1><p className="mt-1 text-zinc-500">تأكد من الاتصال بالإنترنت.</p>
+        <button className="mt-3 rounded-lg bg-brand-500 px-4 py-2 text-sm text-white" onClick={() => load()}>إعادة المحاولة</button></div>
+    </main>
+  );
   if (rep === undefined) return <div className="flex min-h-screen items-center justify-center"><div className="h-6 w-6 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" /></div>;
   if (rep === null) return (
     <main className="flex min-h-screen items-center justify-center p-6 text-center">
@@ -59,21 +69,29 @@ function StudentReportView({ token }: { token: string }) {
   const s: Settings = mergeSettings(rep.settings);
   const V = s.visibility;
   const L = s.labels as Record<string, string>;
-  const aggs = aggregateFromReport(rep.behavior, rep.assignments);
+  const aggs = aggregateFromReport(rep.behavior ?? [], rep.assignments ?? []);
+  const built = buildStudentReport(rep, s);
   const rows: Record<string, GradeRow> = {};
-  for (const sj of rep.subjects) {
-    const en: Entries = {};
-    rep.entries.filter((e) => e.subject_id === sj.id).forEach((e) => (en[e.component] = { score: e.score === null ? null : Number(e.score), excused: e.excused }));
-    rows[sj.id] = computeRow(en, effectiveSettings(s, rep.settings[subjectKey(sj.id)] as SubjectWeights | undefined), aggs[sj.id]);
-  }
-  const overall = overallAverage(rep.subjects.map((sj) => ({ final: rows[sj.id].final, weight: Number(sj.weight) })), s);
+  for (const sj of rep.subjects) rows[sj.id] = built.data[sj.id].rows[ME];
+  const vset = new Set(V.components);
+  const show: StudentShow = {
+    tiles: V.show_stats_tiles, rank: V.show_class_rank && built.pool.length > 1, classAvg: V.show_class_avg && built.pool.length > 1,
+    table: V.show_stats_table, bars: V.show_bars, attendance: V.show_attendance, trajectory: V.show_trajectory,
+    weekly: V.show_weekly, compare: V.show_compare, band: V.show_band, components: vset,
+  };
+  const anyStats = show.tiles || show.table || show.bars || show.attendance || show.trajectory || show.weekly || show.compare;
+  const finalOverall = overallAverage(rep.subjects.map((sj) => ({ final: rows[sj.id].final, weight: Number(sj.weight) })), s);
+  // مثل صفحة الأستاذ: قبل اكتمال العلامات نعرض «حتى الآن» بدل NC
+  const soFar = classStats(built.pool, built.subjects, built.data, s).overall[ME];
+  const overall = typeof finalOverall === "number" ? finalOverall : typeof soFar === "number" ? soFar : finalOverall;
+  const overallSoFar = typeof finalOverall !== "number" && typeof soFar === "number";
   const band = bandFor(overall, s);
   const vis = new Set(V.components);
   const sem1Cols = (["p1", "p2", "m1", "pr1"] as Component[]).filter((c) => vis.has(c));
   const sem2Cols = (["p3", "p4", "m2", "pr2"] as Component[]).filter((c) => vis.has(c));
 
   return (
-    <main className="mx-auto max-w-3xl p-4 sm:p-8">
+    <main className="mx-auto max-w-5xl p-4 sm:p-8">
       <header className="mb-6 flex items-start justify-between gap-4">
         <div>
           {s.profile.school_name && <div className="text-sm text-zinc-500">{s.profile.school_name}</div>}
@@ -88,6 +106,7 @@ function StudentReportView({ token }: { token: string }) {
           <div className="text-sm opacity-80">المعدل العام</div>
           <div className="flex items-baseline gap-3">
             <span className="text-4xl font-bold tabular-nums">{fmt(overall) || "—"}</span>
+            {overallSoFar && <span className="text-sm opacity-80">حتى الآن</span>}
             {typeof overall === "number" && <span className="opacity-80">/ {s.grading.scale}</span>}
             {V.show_band && band && <span className="ms-auto rounded-full bg-white/20 px-3 py-1 text-sm">{band.label}</span>}
           </div>
@@ -104,7 +123,7 @@ function StudentReportView({ token }: { token: string }) {
               <div className="mb-3 flex items-center gap-2">
                 <span className="h-5 w-1.5 rounded-full" style={{ background: sj.color }} />
                 <h2 className="flex-1 font-semibold">{sj.name}</h2>
-                {V.show_final && <span className="text-lg font-bold tabular-nums">{fmt(r.final) || "—"}</span>}
+                {V.show_final && <span className="text-lg font-bold tabular-nums">{typeof r.final !== "number" && r.current !== null ? <>{r.current}<span className="ms-1 text-xs font-normal text-zinc-500">حتى الآن</span></> : fmt(r.final) || "—"}</span>}
                 {V.show_band && b && <span className="text-xs" style={{ color: b.color }}>{b.label}</span>}
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
@@ -147,11 +166,18 @@ function StudentReportView({ token }: { token: string }) {
         })}
       </div>
 
+      {anyStats && (
+        <StaticSettingsProvider settings={s}>
+          <h2 className="mb-3 mt-8 text-lg font-bold">الإحصائيات</h2>
+          <StudentStatsBody student={built.me} pool={built.pool} subjects={built.subjects} data={built.data} dates={built.dates} weights={built.weights} show={show} />
+        </StaticSettingsProvider>
+      )}
+
       {!rep.student.phone_set && <SendPhone token={token} pending={!!rep.student.phone_pending} countryCode={s.whatsapp.country_code} />}
 
       <footer className="mt-6 flex items-center justify-between text-xs text-zinc-400">
-        <span>NC = غير مكتمل · تتحدّث الصفحة تلقائياً{updated && ` · آخر تحديث ${updated.toLocaleTimeString("ar-LB")}`}</span>
-        <button className="no-print rounded-lg border border-zinc-300 px-3 py-1 text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300" onClick={() => window.print()}>طباعة / PDF</button>
+        <span>NC = غير مكتمل · تتحدّث الصفحة تلقائياً{updated && ` · آخر تحديث ${updated.toLocaleTimeString("ar-LB")}`}{failed && " · بدون اتصال الآن"}</span>
+        {V.allow_pdf && <button className="no-print rounded-lg border border-zinc-300 px-3 py-1 text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300" onClick={() => printPage(`علامات ${rep.student.name}`)}>⤓ تحميل PDF</button>}
       </footer>
     </main>
   );

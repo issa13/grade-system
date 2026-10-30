@@ -24,7 +24,7 @@ export function StatTile({ label, value, sub, info, tone }: {
 }
 
 export function Tiles({ children }: { children: ReactNode }) {
-  return <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">{children}</div>;
+  return <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5 print:grid-cols-5">{children}</div>;
 }
 
 export function Section({ title, info, children, actions }: { title: string; info?: ReactNode; children: ReactNode; actions?: ReactNode }) {

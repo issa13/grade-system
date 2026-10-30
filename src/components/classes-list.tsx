@@ -3,7 +3,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 import type { ClassRow } from "@/lib/types";
-import { Button, Card, Empty, Field, Input, Modal, PageHeader, Spinner, useToast } from "@/components/ui";
+import { Button, Card, Empty, Field, Input, LoadError, Modal, PageHeader, Spinner, useToast } from "@/components/ui";
+import { friendly } from "@/lib/errors";
 import { useSettings } from "@/components/settings-provider";
 
 type Row = ClassRow & { students: { count: number }[]; subjects: { count: number }[] };
@@ -15,6 +16,7 @@ export function ClassesList() {
   const [rows, setRows] = useState<Row[] | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [edit, setEdit] = useState<Partial<ClassRow> | null>(null);
+  const [err, setErr] = useState(false);
 
   const load = useCallback(async () => {
     const { data, error } = await supabase()
@@ -24,15 +26,19 @@ export function ClassesList() {
       .is("students.deleted_at", null)
       .is("subjects.deleted_at", null)
       .order("created_at");
-    if (error) toast({ text: error.message, kind: "err" });
+    if (error) { toast({ text: friendly(error), kind: "err" }); setErr(true); return; }
+    setErr(false);
     setRows((data as Row[]) ?? []);
   }, [toast]);
   useEffect(() => { load(); }, [load]);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
-    if (!edit?.name) return;
-    const payload = { name: edit.name, school_year: edit.school_year || settings.year.school_year, notes: edit.notes ?? null };
+    if (!edit) return;
+    const name = (edit?.name ?? "").replace(/\s+/g, " ").trim();
+    if (!name) return toast({ text: "اسم الصف مطلوب", kind: "err" });
+    if (name.length > 200) return toast({ text: "اسم الصف طويل جداً", kind: "err" });
+    const payload = { name, school_year: edit.school_year || settings.year.school_year, notes: edit.notes ?? null };
     const q = edit.id ? supabase().from("classes").update(payload).eq("id", edit.id) : supabase().from("classes").insert(payload);
     const { error } = await q;
     if (error) return toast({ text: error.message, kind: "err" });
@@ -42,11 +48,11 @@ export function ClassesList() {
   }
 
   async function setArchived(c: Row, archived: boolean) {
-    await supabase().from("classes").update({ archived }).eq("id", c.id);
+    { const { error: wErr } = await supabase().from("classes").update({ archived }).eq("id", c.id); if (wErr) return toast({ text: friendly(wErr), kind: "err" }); }
     load();
   }
   async function remove(c: Row) {
-    await supabase().from("classes").update({ deleted_at: new Date().toISOString() }).eq("id", c.id);
+    { const { error: wErr } = await supabase().from("classes").update({ deleted_at: new Date().toISOString() }).eq("id", c.id); if (wErr) return toast({ text: friendly(wErr), kind: "err" }); }
     toast({
       text: `تم نقل "${c.name}" إلى سلة المحذوفات`, kind: "ok",
       action: { label: "تراجع", run: async () => { await supabase().from("classes").update({ deleted_at: null }).eq("id", c.id); load(); } },
@@ -69,7 +75,7 @@ export function ClassesList() {
           </>
         }
       />
-      {!rows ? <Spinner /> : visible.length === 0 ? (
+      {err && !rows ? <LoadError onRetry={load} /> : !rows ? <Spinner /> : visible.length === 0 ? (
         <Empty>{showArchived ? "لا توجد صفوف مؤرشفة." : "لا توجد صفوف بعد. ابدأ بإضافة صف."}</Empty>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">

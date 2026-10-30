@@ -6,11 +6,18 @@ import { computeRow, type Entries, type GradeRow } from "./grades";
 import { effectiveSettings, type Settings, type SubjectWeights } from "./settings";
 import type { Assignment, GradeEntry, Session, SessionRecord, Student, Subject, Submission } from "./types";
 
-/** جلب كل الصفوف على دفعات (Supabase يعيد 1000 صف كحد أقصى في الطلب الواحد). */
+/** نتيجة طلب Supabase أو خطأ واضح (بدل أن تظهر بيانات فارغة بصمت). */
+export function must<T>(r: { data: T | null; error: { message: string } | null }): T {
+  if (r.error) throw new Error(r.error.message);
+  return r.data as T;
+}
+
+/** جلب كل الصفوف على دفعات (Supabase يعيد 1000 صف كحد أقصى في الطلب الواحد). يرمي خطأ إذا فشل. */
 export async function fetchAll<T = unknown>(q: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>): Promise<T[]> {
   const out: T[] = [];
   for (let from = 0; ; from += 1000) {
-    const { data } = await q(from, from + 999);
+    const { data, error } = await q(from, from + 999);
+    if (error) throw new Error((error as { message?: string }).message ?? "fetch failed");
     out.push(...(data ?? []));
     if (!data || data.length < 1000) break;
   }
@@ -35,6 +42,7 @@ export async function loadSubjectGrades(subjectId: string, students: Student[], 
     sb.from("sessions").select("*").eq("subject_id", subjectId).is("deleted_at", null),
     sb.from("assignments").select("*").eq("subject_id", subjectId).is("deleted_at", null),
   ]);
+  must(ses); must(asg);
   const sessions = overlay("sessions", (ses.data ?? []) as Session[], (r) => r.subject_id === subjectId).filter((x) => !x.deleted_at);
   const assignments = (asg.data ?? []) as Assignment[];
   // سجلات الحصص والوظائف (للسعي المحسوب وللإحصائيات)
@@ -69,10 +77,11 @@ export async function loadClassFull(classId: string, s: Settings, weights: Recor
 export async function loadClassBasics(classId: string) {
   const sb = supabase();
   const [c, st, sj] = await Promise.all([
-    sb.from("classes").select("*").eq("id", classId).single(),
+    sb.from("classes").select("*").eq("id", classId).maybeSingle(),
     sb.from("students").select("*").eq("class_id", classId).is("deleted_at", null).order("sort_order").order("full_name"),
     sb.from("subjects").select("*").eq("class_id", classId).is("deleted_at", null).order("created_at"),
   ]);
+  must(c); must(st); must(sj); // «غير موجود» = null، أما خطأ الشبكة أو الصلاحيات فيُرمى
   return {
     cls: c.data as import("./types").ClassRow | null,
     students: (st.data ?? []) as Student[],

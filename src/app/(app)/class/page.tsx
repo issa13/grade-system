@@ -18,7 +18,8 @@ import { PhoneEntry, WhatsAppQueue } from "@/components/whatsapp";
 import { normalizePhone, prettyPhone } from "@/lib/whatsapp";
 import { ClassStatsView } from "@/components/stats-views";
 import { Info } from "@/components/info";
-import { Button, Card, Empty, Field, Input, Modal, PageHeader, Spinner, Tabs, confirmAction, cx, useToast } from "@/components/ui";
+import { LoadError, Button, Card, Empty, Field, Input, Modal, PageHeader, Spinner, Tabs, confirmAction, cx, useToast } from "@/components/ui";
+import { logError } from "@/lib/errors";
 
 type Tab = "students" | "subjects" | "summary" | "stats";
 
@@ -38,20 +39,25 @@ function ClassPageView({ id, openPhones, initialTab }: { id: string; openPhones:
   const [students, setStudents] = useState<Student[] | null>(null);
   const [subjects, setSubjects] = useState<Subject[]>([]);
 
+  const [err, setErr] = useState(false);
   const load = useCallback(async () => {
-    const d = await loadClassBasics(id);
-    setCls(d.cls);
-    setStudents(d.students);
-    setSubjects(d.subjects);
+    try {
+      setErr(false);
+      const d = await loadClassBasics(id);
+      setCls(d.cls);
+      setStudents(d.students);
+      setSubjects(d.subjects);
+    } catch (e) { logError(e); setErr(true); }
   }, [id]);
   useEffect(() => { load(); }, [load]);
 
+  if (err && !students) return <LoadError onRetry={load} />;
   if (!students) return <Spinner />;
   if (!cls) return <Empty>الصف غير موجود.</Empty>;
 
   return (
     <div>
-      <div className="mb-2 text-sm text-zinc-500"><Link href="/classes" className="hover:underline">الصفوف</Link> ‹ {cls.name}</div>
+      <div className="no-print mb-2 text-sm text-zinc-500"><Link href="/classes" className="hover:underline">الصفوف</Link> ‹ {cls.name}</div>
       <PageHeader info="الطلاب: إضافة وترتيب ومشاركة الروابط والأرقام. المواد: كل مادة لها حصص وكشف علامات. ملخص العلامات: النهائي والمعدل العام لكل طالب. الإحصائيات: أرقام ورسوم عن الصف." title={cls.name} sub={`${cls.school_year ?? ""} · ${students.filter((s) => s.active).length} طالب · ${subjects.length} مادة`}
         actions={<Link href={`/report?class=${cls.id}`}><Button variant="secondary">تقارير PDF</Button></Link>} />
       <Tabs<Tab> value={tab} onChange={setTab} tabs={[
@@ -133,11 +139,14 @@ function StudentsTab({ cls, students, reload, openPhones }: { cls: ClassRow; stu
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
-    if (!edit?.full_name) return;
+    if (!edit) return;
+    const fullName = (edit?.full_name ?? "").replace(/\s+/g, " ").trim();
+    if (!fullName) return toast({ text: "الاسم مطلوب", kind: "err" });
+    if (fullName.length > 200) return toast({ text: "الاسم طويل جداً", kind: "err" });
     const rawPhone = (edit.phone ?? "").trim();
     const phone = rawPhone ? normalizePhone(rawPhone, cc) : null;
     if (rawPhone && !phone) return toast({ text: "رقم الهاتف غير صالح", kind: "err" });
-    const payload = { full_name: edit.full_name.trim(), student_number: edit.student_number || null, notes: edit.notes || null, phone };
+    const payload = { full_name: fullName, student_number: edit.student_number || null, notes: edit.notes || null, phone };
     const { error } = edit.id
       ? await supabase().from("students").update(payload).eq("id", edit.id)
       : await supabase().from("students").insert({ ...payload, class_id: cls.id, sort_order: students.length + 1 });
@@ -147,7 +156,7 @@ function StudentsTab({ cls, students, reload, openPhones }: { cls: ClassRow; stu
   }
 
   async function saveBulk() {
-    const names = (bulk ?? "").split("\n").map((x) => x.replace(/\s+/g, " ").trim()).filter(Boolean);
+    const names = (bulk ?? "").split("\n").map((x) => x.replace(/\s+/g, " ").trim().slice(0, 200)).filter(Boolean);
     if (!names.length) return;
     const { error } = await supabase().from("students").insert(
       names.map((n, i) => ({ class_id: cls.id, full_name: n, sort_order: students.length + i + 1 })),
@@ -171,8 +180,10 @@ function StudentsTab({ cls, students, reload, openPhones }: { cls: ClassRow; stu
   }
 
   async function copy(s: Student) {
-    await navigator.clipboard.writeText(link(s));
-    toast({ text: "تم نسخ الرابط", kind: "ok" });
+    try {
+      await navigator.clipboard.writeText(link(s));
+      toast({ text: "تم نسخ الرابط", kind: "ok" });
+    } catch { window.prompt("انسخ الرابط:", link(s)); }
   }
 
   async function exportList() {
@@ -335,8 +346,12 @@ function SubjectsTab({ classId, subjects, reload }: { classId: string; subjects:
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
-    if (!edit?.name) return;
-    const payload = { name: edit.name, color: edit.color || "#1f7a68", weight: Number(edit.weight ?? 1) || 1 };
+    if (!edit) return;
+    const name = (edit?.name ?? "").replace(/\s+/g, " ").trim();
+    if (!name) return toast({ text: "اسم المادة مطلوب", kind: "err" });
+    const weight = Number(edit?.weight ?? 1);
+    if (!(weight > 0 && weight <= 100)) return toast({ text: "الوزن يجب أن يكون أكبر من صفر", kind: "err" });
+    const payload = { name, color: edit?.color || "#1f7a68", weight };
     const { error } = edit.id
       ? await supabase().from("subjects").update(payload).eq("id", edit.id)
       : await supabase().from("subjects").insert({ ...payload, class_id: classId });
@@ -390,16 +405,22 @@ function SummaryTab({ cls, students, subjects }: { cls: ClassRow; students: Stud
   const { settings, loaded, subjectWeights } = useSettings();
   const [grades, setGrades] = useState<Record<string, SubjectGrades> | null>(null);
   const dates = useAssessmentDates(subjects);
+  const [err, setErr] = useState(false);
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
     if (!loaded) return;
     (async () => {
-      const out: Record<string, SubjectGrades> = {};
-      await Promise.all(subjects.map(async (s) => { out[s.id] = await loadSubjectGrades(s.id, students, settings, subjectWeights[s.id]); }));
-      setGrades(out);
+      try {
+        setErr(false);
+        const out: Record<string, SubjectGrades> = {};
+        await Promise.all(subjects.map(async (s) => { out[s.id] = await loadSubjectGrades(s.id, students, settings, subjectWeights[s.id]); }));
+        setGrades(out);
+      } catch (e) { logError(e); setErr(true); }
     })();
-  }, [subjects, students, settings, loaded, subjectWeights]);
+  }, [subjects, students, settings, loaded, subjectWeights, retry]);
 
+  if (err) return <LoadError onRetry={() => setRetry((x) => x + 1)} />;
   if (!grades) return <Spinner />;
   if (!subjects.length) return <Empty>أضف مواد أولاً.</Empty>;
 

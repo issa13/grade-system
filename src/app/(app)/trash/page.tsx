@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
+import { friendly } from "@/lib/errors";
 import { useSettings } from "@/components/settings-provider";
 import { Button, Card, Empty, PageHeader, Spinner, confirmAction, useToast } from "@/components/ui";
 
@@ -23,22 +24,25 @@ export default function TrashPage() {
   const load = useCallback(async () => {
     const all: Item[] = [];
     for (const x of TABLES) {
-      const { data } = await supabase().from(x.t).select("*").not("deleted_at", "is", null);
+      const { data, error } = await supabase().from(x.t).select("*").not("deleted_at", "is", null);
+      if (error) { toast({ text: friendly(error), kind: "err" }); return; }
       (data ?? []).forEach((r: Row) => all.push({ ...r, table: x.t, label: x.label, display: x.name(r) ?? "" }));
     }
     all.sort((a, b) => b.deleted_at.localeCompare(a.deleted_at));
     setItems(all);
-  }, []);
+  }, [toast]);
   useEffect(() => { load(); }, [load]);
 
   async function restore(i: Item) {
-    await supabase().from(i.table).update({ deleted_at: null }).eq("id", i.id);
+    const { error } = await supabase().from(i.table).update({ deleted_at: null }).eq("id", i.id);
+    if (error) return toast({ text: friendly(error), kind: "err" });
     toast({ text: "تمت الاستعادة", kind: "ok" });
     load();
   }
   async function purge(i: Item) {
     if (!confirmAction("حذف نهائي؟ لا يمكن التراجع.")) return;
-    await supabase().from(i.table).delete().eq("id", i.id);
+    const { error } = await supabase().from(i.table).delete().eq("id", i.id);
+    if (error) return toast({ text: friendly(error), kind: "err" });
     load();
   }
 

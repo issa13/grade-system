@@ -12,6 +12,7 @@ import type { AlertState, Student } from "@/lib/types";
 import { useSettings } from "./settings-provider";
 import { WhatsAppQueue } from "./whatsapp";
 import { Button, Modal, cx, useToast } from "./ui";
+import { friendly, logError } from "@/lib/errors";
 
 type Ctx = {
   groups: AlertGroup[];
@@ -33,6 +34,7 @@ export function AlertsProvider({ children }: { children: ReactNode }) {
   const last = useRef(0);
   const busy = useRef(false);
   const path = usePathname();
+  const toast = useToast();
 
   const refresh = useCallback(async (force = false) => {
     if (!sLoaded || busy.current) return;
@@ -60,9 +62,17 @@ export function AlertsProvider({ children }: { children: ReactNode }) {
   const setState = useCallback(async (items: AlertItem[], status: "done" | "snoozed") => {
     const rows = items.map((i) => ({ key: i.key, status, fingerprint: i.fingerprint, snoozed_until: status === "snoozed" ? addDays(t, 7) : null, updated_at: new Date().toISOString() }));
     setStates((cur) => [...cur.filter((x) => !rows.some((r) => r.key === x.key)), ...rows]);
-    const { data: u } = await supabase().auth.getUser();
-    if (u.user) await supabase().from("alert_states").upsert(rows.map((r) => ({ ...r, owner_id: u.user!.id })), { onConflict: "owner_id,key" });
-  }, [t]);
+    try {
+      const { data: u } = await supabase().auth.getUser();
+      if (!u.user) throw new Error("not authorized");
+      const { error } = await supabase().from("alert_states").upsert(rows.map((r) => ({ ...r, owner_id: u.user!.id })), { onConflict: "owner_id,key" });
+      if (error) throw new Error(error.message);
+    } catch (e) {
+      logError(e, "alerts");
+      toast({ text: "لم يُحفظ: " + friendly(e), kind: "err" });
+      refresh(true);
+    }
+  }, [t, toast, refresh]);
 
   const ctx: Ctx = {
     groups, count, loaded: !!data,

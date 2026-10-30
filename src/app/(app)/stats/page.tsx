@@ -2,15 +2,17 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
-import { loadClassFull, type SubjectGrades } from "@/lib/class-data";
+import { loadClassFull, must, type SubjectGrades } from "@/lib/class-data";
+import { logError } from "@/lib/errors";
 import { fmtDate } from "@/lib/dates";
 import { addAtt, attendance, avg, classStats, distribution, num, pct, subjectStats, type Attendance } from "@/lib/stats";
 import type { Result } from "@/lib/grades";
 import type { ClassRow, Session, Student, Subject } from "@/lib/types";
 import { useSettings } from "@/components/settings-provider";
 import { BarList, Distribution, RankList, Section, StatTile, Tiles, fmtPct } from "@/components/charts";
-import { Empty, PageHeader, Spinner } from "@/components/ui";
+import { Empty, LoadError, PageHeader, Spinner } from "@/components/ui";
 import { DiffCell } from "@/components/compare-views";
+import { PrintButton, PrintHeader } from "@/components/print";
 import { classCompare, diffOf, hasSemester2 } from "@/lib/compare";
 
 type ClassData = { cls: ClassRow; students: Student[]; subjects: Subject[]; data: Record<string, SubjectGrades> };
@@ -19,12 +21,15 @@ export default function TeacherStats() {
   const { settings, loaded, subjectWeights } = useSettings();
   const [classes, setClasses] = useState<ClassData[] | null>(null);
   const [edits7, setEdits7] = useState<number | null>(null);
+  const [err, setErr] = useState(false);
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
     if (!loaded) return;
     (async () => {
-      const { data } = await supabase().from("classes").select("*").is("deleted_at", null).eq("archived", false).order("created_at");
-      const list = (data ?? []) as ClassRow[];
+      try {
+      setErr(false);
+      const list = must(await supabase().from("classes").select("*").is("deleted_at", null).eq("archived", false).order("created_at")) as ClassRow[];
       const out = await Promise.all(list.map(async (c) => {
         const f = await loadClassFull(c.id, settings, subjectWeights);
         return { cls: c, students: f.students, subjects: f.subjects, data: f.data };
@@ -33,9 +38,11 @@ export default function TeacherStats() {
       const since = new Date(Date.now() - 7 * 864e5).toISOString();
       const { count } = await supabase().from("audit_log").select("id", { count: "exact", head: true }).gte("at", since);
       setEdits7(count ?? 0);
+      } catch (e) { logError(e); setErr(true); }
     })();
-  }, [loaded, settings, subjectWeights]);
+  }, [loaded, settings, subjectWeights, retry]);
 
+  if (err && !classes) return <LoadError onRetry={() => setRetry((x) => x + 1)} />;
   if (!classes) return <Spinner />;
   if (!classes.length) return <Empty>لا توجد صفوف بعد. أنشئ صفاً لتظهر الإحصائيات.</Empty>;
 
@@ -64,7 +71,9 @@ export default function TeacherStats() {
 
   return (
     <div>
-      <PageHeader info="ملخص كل صفوفك (غير المؤرشفة). اضغط على أي صف أو طالب أو حصة للانتقال إليه. لكل صف ولكل مادة صفحة إحصائيات أيضاً." title="إحصائياتي" sub={`${settings.profile.teacher_name || "الأستاذ"} · السنة الدراسية ${settings.year.school_year}`} />
+      <PageHeader info="ملخص كل صفوفك (غير المؤرشفة). اضغط على أي صف أو طالب أو حصة للانتقال إليه. لكل صف ولكل مادة صفحة إحصائيات أيضاً." title="إحصائياتي" sub={`${settings.profile.teacher_name || "الأستاذ"} · السنة الدراسية ${settings.year.school_year}`}
+        actions={<PrintButton title="إحصائياتي" />} />
+      <PrintHeader title="إحصائياتي" />
       <div className="space-y-4">
         <Tiles>
           <StatTile label="الصفوف / المواد" value={`${per.length} / ${subjectsCount}`} sub={`${studentsCount} طالب`} info="الصفوف غير المؤرشفة فقط." />
@@ -77,7 +86,7 @@ export default function TeacherStats() {
             info="الحضور في كل الحصص المسجلة. «تعديل هذا الأسبوع» = عدد التغييرات في سجل التعديلات خلال 7 أيام." />
         </Tiles>
 
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid gap-4 lg:grid-cols-2 print:grid-cols-2">
           <Section title="المعدل العام لكل صف" info="متوسط المعدل العام لطلاب كل صف. مرّر الفأرة لرؤية نسبة النجاح.">
             <BarList max={g.scale} marker={{ value: g.pass_mark, label: `علامة النجاح (${g.pass_mark})` }}
               items={per.map((p) => ({ key: p.cls.id, label: p.cls.name, value: p.cs.avgOverall, href: `/class?id=${p.cls.id}`, tip: `نسبة النجاح ${fmtPct(p.cs.passRate)} · ${p.students.length} طالب` }))} />
@@ -91,13 +100,13 @@ export default function TeacherStats() {
               value: <Link href={`/session?id=${u.s.id}`} className="text-brand-600 hover:underline">تسجيل ←</Link>,
             }))} />
           </Section>
-          <Section title="طلاب يحتاجون متابعة" info={<>معدل تحت {g.pass_mark}، أو رسوب في مادة، أو حضور أقل من 80% — في كل الصفوف.</>}>
+          <Section title="طلاب يحتاجون متابعة" info={<>معدل تحت {g.pass_mark}، أو رسوب في مادة، أو حضور أقل من {settings.alerts.low_attendance_rate}% — في كل الصفوف.</>}>
             <RankList empty="لا يوجد 👍" items={atRisk.slice(0, 12).map((r) => ({
               key: r.student.id, label: `${r.student.full_name} · ${r.cls.name}`, href: `/student?id=${r.student.id}`,
               value: <span className="text-xs text-amber-700 dark:text-amber-400">{[
                 typeof r.overall === "number" && r.overall < g.pass_mark ? `معدل ${r.overall}` : "",
                 r.failing.length ? `راسب في ${r.failing.length}` : "",
-                r.att.attendanceRate !== null && r.att.attendanceRate < 80 ? `حضور ${r.att.attendanceRate}%` : "",
+                r.att.attendanceRate !== null && r.att.attendanceRate < settings.alerts.low_attendance_rate ? `حضور ${r.att.attendanceRate}%` : "",
               ].filter(Boolean).join(" · ")}</span>,
             }))} />
           </Section>

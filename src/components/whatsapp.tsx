@@ -11,6 +11,7 @@ import { fmt } from "@/lib/grades";
 import { failingSubjects, fillTemplate, normalizePhone, periodStats, prettyPhone, waLink } from "@/lib/whatsapp";
 import type { MessageLog, Student, Subject } from "@/lib/types";
 import { useSettings } from "./settings-provider";
+import { friendly } from "@/lib/errors";
 import { Info } from "./info";
 import { Button, Input, Modal, Spinner, cx, useToast } from "./ui";
 
@@ -31,18 +32,21 @@ export function WhatsAppQueue({ students, classId, onClose, title }: { students:
   const [addPhone, setAddPhone] = useState("");
   const W = settings.whatsapp;
 
+  const idsKey = students.map((s) => s.id).join(",");
   useEffect(() => {
     (async () => {
+      try {
       const f = await loadClassFull(classId, settings, subjectWeights);
-      const ids = students.map((s) => s.id);
+      const ids = idsKey.split(",");
       const { data } = await supabase().from("message_log").select("*").in("student_id", ids).order("sent_at", { ascending: false });
       setLogs((data ?? []) as MessageLog[]);
       setFull({ students: f.students, subjects: f.subjects, data: f.data, className: f.cls?.name ?? "" });
       // أحدث الأرقام من قاعدة البيانات
       const fresh = Object.fromEntries(f.students.map((s) => [s.id, s.phone ?? null]));
       setPhones(Object.fromEntries(students.map((s) => [s.id, fresh[s.id] ?? s.phone ?? null])));
+      } catch (e) { toast({ text: friendly(e), kind: "err" }); onClose(); }
     })();
-  }, [classId, students, settings, subjectWeights]);
+  }, [classId, idsKey, settings, subjectWeights]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const t = today();
   const sentToday = useMemo(() => new Set(logs.filter((l) => l.sent_at.slice(0, 10) === t).map((l) => l.student_id)), [logs, t]);
@@ -101,7 +105,8 @@ export function WhatsAppQueue({ students, classId, onClose, title }: { students:
     const phone = phones[st.id];
     if (!phone) return;
     const text = edited[st.id] ?? messageFor(st);
-    window.open(waLink(phone, text), "_blank", "noopener");
+    const w = window.open(waLink(phone, text), "_blank", "noopener");
+    if (!w && !navigator.userAgent.includes("Mobile")) toast({ text: "المتصفح منع فتح نافذة جديدة — اسمح بالنوافذ المنبثقة لهذا الموقع", kind: "err" });
     const p = periodFor(st.id);
     const row = { student_id: st.id, period_from: p.from, period_to: p.to, sent_at: new Date().toISOString() };
     setLogs((l) => [row, ...l]);

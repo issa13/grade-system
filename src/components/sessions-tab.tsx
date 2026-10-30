@@ -5,11 +5,12 @@ import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { datesBetween, fmtDate, semesterFor, toISO, today, weekdayOf } from "@/lib/dates";
 import { exportXlsx } from "@/lib/excel";
+import { friendly } from "@/lib/errors";
 import { sessionIdFor } from "@/lib/ids";
 import { WEEKDAYS, type Session, type SessionRecord, type Slot, type Student, type Subject } from "@/lib/types";
 import { useSettings } from "./settings-provider";
 import { Info } from "./info";
-import { Button, Card, Empty, Field, Input, Modal, Select, Spinner, cx, useToast } from "./ui";
+import { Button, Card, Empty, Field, Input, Modal, Select, Spinner, confirmAction, cx, useToast } from "./ui";
 
 export function SessionsTab({ subject, students }: { subject: Subject; students: Student[] }) {
   const { settings } = useSettings();
@@ -28,14 +29,27 @@ export function SessionsTab({ subject, students }: { subject: Subject; students:
       sb.from("schedule_slots").select("*").eq("subject_id", subject.id).order("weekday"),
       sb.from("sessions").select("*, session_records(count)").eq("subject_id", subject.id).is("deleted_at", null).order("date", { ascending: false }),
     ]);
+    if (a.error || b.error) { toast({ text: friendly(a.error ?? b.error), kind: "err" }); return; }
     setSlots((a.data ?? []) as Slot[]);
     setSessions((b.data ?? []) as never);
-  }, [subject.id]);
+  }, [subject.id, toast]);
   useEffect(() => { load(); }, [load]);
 
   async function saveSlot(e: React.FormEvent) {
     e.preventDefault();
     const p = { weekday: Number(slotEdit?.weekday ?? 1), start_time: slotEdit?.start_time || null, end_time: slotEdit?.end_time || null };
+    if (p.start_time && p.end_time && p.end_time.slice(0, 5) <= p.start_time.slice(0, 5)) return toast({ text: "وقت النهاية يجب أن يكون بعد وقت البداية", kind: "err" });
+    if (!p.start_time && p.end_time) return toast({ text: "أدخل وقت البداية أيضاً", kind: "err" });
+    // تعارض مع حصة أخرى (أي مادة) في نفس اليوم والوقت
+    if (p.start_time) {
+      const { data: others } = await supabase().from("schedule_slots")
+        .select("id,start_time,end_time,subjects!inner(name,deleted_at,classes!inner(name,deleted_at))")
+        .eq("weekday", p.weekday).is("subjects.deleted_at", null).is("subjects.classes.deleted_at", null);
+      const s0 = p.start_time.slice(0, 5), e0 = (p.end_time ?? p.start_time).slice(0, 5);
+      const clash = ((others ?? []) as unknown as { id: string; start_time: string | null; end_time: string | null; subjects: { name: string; classes: { name: string } } }[])
+        .find((o) => o.id !== slotEdit?.id && o.start_time && o.start_time.slice(0, 5) < (e0 > s0 ? e0 : s0 + "z") && (o.end_time ?? o.start_time).slice(0, 5) > s0);
+      if (clash && !confirmAction(`هذا الموعد يتعارض مع ${clash.subjects.name} (${clash.subjects.classes.name}) ${clash.start_time?.slice(0, 5)}–${clash.end_time?.slice(0, 5) ?? ""}. حفظ على أي حال؟`)) return;
+    }
     const { error } = slotEdit?.id
       ? await supabase().from("schedule_slots").update(p).eq("id", slotEdit.id)
       : await supabase().from("schedule_slots").insert({ ...p, subject_id: subject.id });
@@ -44,12 +58,13 @@ export function SessionsTab({ subject, students }: { subject: Subject; students:
     load();
   }
   async function delSlot(s: Slot) {
-    await supabase().from("schedule_slots").delete().eq("id", s.id);
+    { const { error: wErr } = await supabase().from("schedule_slots").delete().eq("id", s.id); if (wErr) return toast({ text: friendly(wErr), kind: "err" }); }
     load();
   }
 
   async function generate() {
     if (!gen) return;
+    if (!gen.from || !gen.to || gen.from > gen.to) return toast({ text: "تاريخ البداية يجب أن يكون قبل تاريخ النهاية", kind: "err" });
     const existing = new Set((sessions ?? []).map((s) => s.date + (s.schedule_slot_id ?? "")));
     const rows: Partial<Session>[] = [];
     for (const sl of slots) {
@@ -76,11 +91,11 @@ export function SessionsTab({ subject, students }: { subject: Subject; students:
   }
 
   async function toggleCancel(s: Session) {
-    await supabase().from("sessions").update({ cancelled: !s.cancelled }).eq("id", s.id);
+    { const { error: wErr } = await supabase().from("sessions").update({ cancelled: !s.cancelled }).eq("id", s.id); if (wErr) return toast({ text: friendly(wErr), kind: "err" }); }
     load();
   }
   async function remove(s: Session) {
-    await supabase().from("sessions").update({ deleted_at: new Date().toISOString() }).eq("id", s.id);
+    { const { error: wErr } = await supabase().from("sessions").update({ deleted_at: new Date().toISOString() }).eq("id", s.id); if (wErr) return toast({ text: friendly(wErr), kind: "err" }); }
     toast({ text: "حُذفت الحصة", kind: "ok", action: { label: "تراجع", run: async () => { await supabase().from("sessions").update({ deleted_at: null }).eq("id", s.id); load(); } } });
     load();
   }

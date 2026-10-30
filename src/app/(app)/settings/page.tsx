@@ -7,6 +7,8 @@ import { COMPONENTS, DEFAULT_SETTINGS, SECTION_TITLES, type EditableKey, type Se
 import { semesterFor, today } from "@/lib/dates";
 import { downloadJson } from "@/lib/excel";
 import { BACKUP_TABLES, BACKUP_VERSION } from "@/lib/backup-tables";
+import { validateSection } from "@/lib/validate-settings";
+import { clearErrors, friendly, readErrors, type LoggedError } from "@/lib/errors";
 import { WEEKDAYS } from "@/lib/types";
 import { Info } from "@/components/info";
 import { Button, Card, Field, Input, Modal, PageHeader, Select, Spinner, confirmAction, cx, useToast } from "@/components/ui";
@@ -25,7 +27,11 @@ const FIELD_LABELS: Record<string, string> = {
   participation_max_per_session: "أقصى عدد مشاركات في الحصة",
   late_threshold_minutes: "يعتبر متأخراً بعد (دقائق)", excused_counts_as_absent: "الغياب بعذر يُحسب غياباً",
   show_semesters: "إظهار معدل كل نصف", show_final: "إظهار العلامة النهائية", show_overall: "إظهار المعدل العام",
-  show_behavior: "إظهار ملخص السلوك والحضور", show_band: "إظهار التقدير",
+  show_behavior: "إظهار ملخص السلوك تحت كل مادة", show_band: "إظهار التقدير",
+  show_stats_tiles: "بطاقات الإحصائيات (المعدل، الحضور، المشاركة، الوظائف)", show_stats_table: "جدول العلامات في كل مادة",
+  show_bars: "رسم النهائي في كل مادة", show_attendance: "الحضور والسلوك حسب المادة", show_trajectory: "مسار العلامات (الرسم)",
+  show_weekly: "الرسم بالأسابيع (غياب، مشاركة، شغب)", show_compare: "مقارنة النصفين", show_class_rank: "الترتيب في الصف وفي كل مادة",
+  show_class_avg: "معدل الصف (للمقارنة)", allow_pdf: "زر «تحميل PDF» للطالب",
   trash_retention_days: "مدة الاحتفاظ بالمحذوفات (أيام)",
   home: "الصفحة الرئيسية", now_before_minutes: "«الآن» يبدأ قبل الحصة بـ (دقائق)", now_after_minutes: "«الآن» يبقى بعد نهاية الحصة (دقائق)",
   country_code: "مفتاح الدولة", period: "فترة الأرقام في الرسالة", template: "قالب الرسالة",
@@ -84,6 +90,16 @@ const FIELD_INFO: Record<string, string> = {
   show_overall: "إظهار المعدل العام لكل المواد في أعلى الصفحة.",
   show_behavior: "إظهار عدد المشاركات والشغب والتأخير والغياب والوظائف.",
   show_band: "إظهار التقدير (ممتاز، جيد جداً...).",
+  show_stats_tiles: "في رابط الطالب: نفس بطاقات صفحة الطالب عندك.",
+  show_stats_table: "المعدلات والنهائي في كل مادة، مع الحضور.",
+  show_bars: "رسم أفقي لعلامة كل مادة مع خط النجاح.",
+  show_attendance: "الغياب والتأخير والمشاركة والشغب والوظائف لكل مادة.",
+  show_trajectory: "رسم العلامات عبر الوقت مع الاتجاه والهبوط المفاجئ.",
+  show_weekly: "غياب ومشاركة وشغب الطالب في كل أسبوع.",
+  show_compare: "النصف الأول مقابل الثاني (يظهر بعد أول علامة من النصف الثاني).",
+  show_class_rank: "⚠ لحساب الترتيب يُرسل إلى صفحة الطالب علامات زملائه بدون أسماء وبترتيب عشوائي. أوقفه إذا لا تريد ذلك.",
+  show_class_avg: "⚠ مثل الترتيب: يحتاج علامات الزملاء بدون أسماء لحساب معدل الصف.",
+  allow_pdf: "الطالب يستطيع تحميل صفحته كملف PDF (نفس ما يراه).",
   bands: "كل علامة ≥ الحد الأدنى تأخذ هذا التقدير. الترتيب لا يهم.",
   trash_retention_days: "العناصر المحذوفة تبقى في سلة المحذوفات هذه المدة ثم تُحذف نهائياً.",
   home: "البرنامج الأسبوعي (حصص الأسبوع بأوقاتها) أو قائمة الصفوف كما في الإصدار الأول.",
@@ -216,6 +232,8 @@ function SectionEditor<K extends EditableKey>({ k, initial }: { k: K; initial: S
   const set = (key: string, val: unknown) => { setV((o) => ({ ...o, [key]: val })); setDirty(true); };
 
   async function onSave() {
+    const bad = validateSection(k, v, settings);
+    if (bad) return toast({ text: bad, kind: "err" });
     if (k === "grading") {
       const g = v as Settings["grading"];
       const sum = Number(g.sem1_weight) + Number(g.sem2_weight) + Number(g.progress1_weight) + Number(g.progress2_weight);
@@ -415,7 +433,11 @@ function DataTools() {
     if (!confirmAction("سيتم دمج النسخة الاحتياطية مع البيانات الحالية (السجلات بنفس المعرّف ستُستبدل). متابعة؟")) return;
     setBusy(true);
     try {
-      const json = JSON.parse(await file.text()) as { tables: Record<string, Record<string, unknown>[]> };
+      if (file.size > 50 * 1024 * 1024) throw new Error("الملف كبير جداً");
+      let json: { version?: number; tables: Record<string, Record<string, unknown>[]> };
+      try { json = JSON.parse(await file.text()); } catch { throw new Error("الملف ليس نسخة احتياطية صالحة (JSON)"); }
+      if (!json || typeof json !== "object" || !json.tables || typeof json.tables !== "object") throw new Error("الملف لا يحتوي على جداول النسخة الاحتياطية");
+      for (const t of Object.keys(json.tables)) if (!Array.isArray(json.tables[t])) throw new Error(`الجدول ${t} غير صالح`);
       const { data: u } = await supabase().auth.getUser();
       for (const t of BACKUP_TABLES) {
         const rows = (json.tables[t] ?? []).map((r) => ({ ...r, owner_id: u.user!.id }));
@@ -428,7 +450,7 @@ function DataTools() {
       toast({ text: "تم استيراد النسخة الاحتياطية", kind: "ok" });
       setTimeout(() => location.reload(), 800);
     } catch (e) {
-      toast({ text: "فشل الاستيراد: " + (e as Error).message, kind: "err" });
+      toast({ text: "فشل الاستيراد: " + friendly(e), kind: "err" });
     }
     setBusy(false);
   }
@@ -443,6 +465,7 @@ function DataTools() {
       </label>
     </div>
     <KeepaliveStatus />
+    <ErrorLog />
     </div>
   );
 }
@@ -523,4 +546,31 @@ async function shrinkImage(file: File, maxSide: number): Promise<string> {
     if (jpg.length < LIMIT) return jpg;
   }
   throw new Error("الصورة كبيرة جداً");
+}
+
+/** «سجل الأخطاء»: آخر الأخطاء على هذا الجهاز (بدون بيانات طلاب)، لنسخها عند طلب المساعدة. */
+function ErrorLog() {
+  const toast = useToast();
+  const [list, setList] = useState<LoggedError[]>([]);
+  const [open, setOpen] = useState(false);
+  useEffect(() => { setList(readErrors()); }, [open]);
+  return (
+    <div className="rounded-lg bg-zinc-50 p-3 text-sm dark:bg-zinc-800/50">
+      <div className="flex flex-wrap items-center gap-2">
+        <span>سجل الأخطاء على هذا الجهاز: <b>{list.length}</b></span>
+        <Info title="سجل الأخطاء">إذا حدثت مشكلة، يُسجَّل الخطأ هنا (الرسالة والصفحة والوقت فقط، بدون أسماء أو علامات). انسخه وأرسله عند طلب المساعدة.</Info>
+        <div className="flex-1" />
+        {list.length > 0 && <>
+          <Button size="sm" variant="ghost" onClick={() => setOpen(!open)}>{open ? "إخفاء" : "عرض"}</Button>
+          <Button size="sm" variant="ghost" onClick={async () => { try { await navigator.clipboard.writeText(JSON.stringify(list, null, 2)); toast({ text: "نُسخ السجل", kind: "ok" }); } catch { toast({ text: "تعذّر النسخ", kind: "err" }); } }}>نسخ</Button>
+          <Button size="sm" variant="ghost" onClick={() => { clearErrors(); setList([]); }}>مسح</Button>
+        </>}
+      </div>
+      {open && (
+        <ul className="mt-2 max-h-60 space-y-1 overflow-y-auto text-xs" dir="ltr">
+          {list.map((e, i) => <li key={i} className="font-mono text-zinc-600 dark:text-zinc-400">{e.at.slice(0, 19).replace("T", " ")} {e.page} — {e.message}</li>)}
+        </ul>
+      )}
+    </div>
+  );
 }

@@ -15,7 +15,8 @@ import type { Student, Subject } from "@/lib/types";
 import { useSettings } from "./settings-provider";
 import Link from "next/link";
 import { Info } from "./info";
-import { Button, Card, Empty, Field, Input, Spinner, confirmAction, cx, useToast } from "./ui";
+import { Button, Card, Empty, Field, Input, LoadError, Spinner, confirmAction, cx, useToast } from "./ui";
+import { logError } from "@/lib/errors";
 
 type Col = { key: Component | "sem1" | "sem2" | "final"; input: boolean };
 const COLS: Col[] = [
@@ -52,10 +53,13 @@ export function GradeGrid({ subject, className, students }: { subject: Subject; 
   const [showWeights, setShowWeights] = useState(false);
   const L = settings.labels as Record<string, string>;
 
+  const [err, setErr] = useState(false);
+  const [retry, setRetry] = useState(0);
   useEffect(() => {
     if (!loaded) return;
-    loadSubjectGrades(subject.id, students, settings, own).then((d) => { setEntries(d.entries); setAgg(d.agg); });
-  }, [subject.id, students, settings, loaded, own]);
+    setErr(false);
+    loadSubjectGrades(subject.id, students, settings, own).then((d) => { setEntries(d.entries); setAgg(d.agg); }).catch((e) => { logError(e); setErr(true); });
+  }, [subject.id, students, settings, loaded, own, retry]);
 
   // تواريخ الامتحانات (لمسار الطالب وتنبيه «علامات ناقصة»)
   const [dates, setDates] = useState<Partial<Record<Component, string>>>({});
@@ -149,6 +153,8 @@ export function GradeGrid({ subject, className, students }: { subject: Subject; 
     if (el) { e.preventDefault(); el.focus(); el.select(); }
   }
 
+  // لا نعرض كشفاً فارغاً عند فشل التحميل (حتى لا تُكتب علامات فوق المحفوظة)
+  if (err && !entries) return <LoadError text="تعذّر تحميل كشف العلامات." onRetry={() => setRetry((x) => x + 1)} />;
   if (!entries) return <Spinner />;
   if (!students.length) return <Empty>لا يوجد طلاب في هذا الصف.</Empty>;
 

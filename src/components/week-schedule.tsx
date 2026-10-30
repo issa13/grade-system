@@ -14,7 +14,8 @@ import { useSettings } from "./settings-provider";
 import { AlertsStrip } from "./alerts";
 import { Info } from "./info";
 import { WhatsAppQueue } from "./whatsapp";
-import { Button, Card, Empty, Input, Modal, Spinner, cx } from "./ui";
+import { Button, Card, Empty, Input, LoadError, Modal, Spinner, cx } from "./ui";
+import { logError } from "@/lib/errors";
 
 type Week = Awaited<ReturnType<typeof loadWeek>>;
 const SHORT = ["أحد", "إثنين", "ثلاثاء", "أربعاء", "خميس", "جمعة", "سبت"];
@@ -34,15 +35,20 @@ export function WeekSchedule() {
   const [missingOpen, setMissingOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const autoOpened = useRef(false);
+  // اختصار «حصة اليوم» (?now=1): نحفظه قبل أن يُعاد كتابة الرابط
+  const wantNow = useRef(q.get("now") === "1");
 
   const todayISO = toISO(now);
   const start = useMemo(() => addDays(weekStartFor(todayISO, settings.year.weekend_days), offset * 7), [todayISO, settings.year.weekend_days, offset]);
   const end = addDays(start, 6);
   const days = useMemo(() => weekDays(start, settings, todayISO), [start, settings, todayISO]);
 
+  const [err, setErr] = useState(false);
   const reload = useCallback(async () => {
-    const w = await loadWeek(start, end);
-    setWeek(w);
+    try {
+      setErr(false);
+      setWeek(await loadWeek(start, end));
+    } catch (e) { logError(e); setErr(true); }
   }, [start, end]);
   useEffect(() => { if (loaded) { setWeek(null); reload(); } }, [loaded, reload]);
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 30_000); return () => clearInterval(t); }, []);
@@ -77,12 +83,13 @@ export function WeekSchedule() {
 
   // اختصار «حصة اليوم»: يفتح الحصة الجارية مباشرة
   useEffect(() => {
-    if (!built || autoOpened.current || q.get("now") !== "1") return;
+    if (!built || autoOpened.current || !wantNow.current) return;
     autoOpened.current = true;
     const cur = built.instances.find((i) => i.current && i.status !== "cancelled") ?? built.instances.find((i) => i.date === todayISO && (i.status === "now" || i.status === "today"));
     if (cur) open(cur);
-  }, [built, q, todayISO, open]);
+  }, [built, todayISO, open]);
 
+  if (err && !week) return <LoadError onRetry={reload} />;
   if (!loaded || !week || !built) return <Spinner />;
   const { rows, instances } = built;
   const untimed = instances.some((i) => !i.start);

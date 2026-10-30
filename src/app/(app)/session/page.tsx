@@ -5,12 +5,13 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { loadSessionBundle } from "@/lib/session-data";
 import { enqueue, onSessionRemap } from "@/lib/outbox";
 import { useSync } from "@/components/sync-status";
+import { logError } from "@/lib/errors";
 import { WhatsAppQueue } from "@/components/whatsapp";
 import { fmtDate, today, weekdayOf } from "@/lib/dates";
 import { WEEKDAYS, type ClassRow, type Session, type SessionRecord, type Student, type Subject } from "@/lib/types";
 import { useSettings } from "@/components/settings-provider";
 import { Info } from "@/components/info";
-import { Button, Card, Empty, Input, Spinner, cx, useToast } from "@/components/ui";
+import { Button, Card, Empty, Input, LoadError, Spinner, cx, useToast } from "@/components/ui";
 
 const blank = (session_id: string, student_id: string): SessionRecord => ({
   session_id, student_id, participation: 0, disruption: 0, late: false, absence: null, homework: null, note: null,
@@ -43,9 +44,12 @@ function SessionPageView({ id }: { id: string }) {
   const history = useRef<SessionRecord[]>([]);
   const latest = useRef<Record<string, SessionRecord>>({});
 
+  const [err, setErr] = useState(false);
+  const [retry, setRetry] = useState(0);
   useEffect(() => {
     (async () => {
-      const b = await loadSessionBundle(id);
+      let b;
+      try { setErr(false); b = await loadSessionBundle(id); } catch (e) { logError(e); setErr(true); return; }
       setSession(b?.session ?? null);
       if (!b) return;
       setSubject(b.subject);
@@ -57,7 +61,7 @@ function SessionPageView({ id }: { id: string }) {
       latest.current = m;
       setSiblings(b.siblings);
     })();
-  }, [id]);
+  }, [id, retry]);
 
   // إذا تبيّن أن الحصة أُنشئت من جهاز آخر بمعرّف مختلف، ننتقل إليها
   useEffect(() => onSessionRemap((from, to) => { if (from === id) router.replace(`/session?id=${to}`); }), [id, router]);
@@ -140,6 +144,7 @@ function SessionPageView({ id }: { id: string }) {
     document.querySelector(`[data-row="${focus}"]`)?.scrollIntoView({ block: "nearest" });
   }, [focus]);
 
+  if (err) return <LoadError text="تعذّر تحميل الحصة. لا تسجّل قبل أن تظهر التسجيلات المحفوظة." onRetry={() => setRetry((x) => x + 1)} />;
   if (session === undefined || (session && !cls)) return <Spinner />;
   if (!session || !subject || !cls) return <Empty>الحصة غير موجودة.</Empty>;
 
@@ -153,7 +158,7 @@ function SessionPageView({ id }: { id: string }) {
 
   return (
     <div>
-      <div className="mb-2 text-sm text-zinc-500">
+      <div className="no-print mb-2 text-sm text-zinc-500">
         <Link href="/schedule" className="hover:underline">البرنامج</Link> ‹ <Link href={`/class?id=${cls.id}`} className="hover:underline">{cls.name}</Link> ‹ <Link href={`/subject?id=${subject.id}`} className="hover:underline">{subject.name}</Link>
       </div>
 
