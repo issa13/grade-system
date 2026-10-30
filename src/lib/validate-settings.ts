@@ -59,6 +59,10 @@ export function validateSection(k: EditableKey, v: V, s: Settings): string | nul
       );
     case "trajectory":
       return first(between("drop_points", 0.5, s.grading.scale, "الهبوط المفاجئ"), between("trend_window", 2, 10, "عدد العلامات"), between("trend_points", 0, s.grading.scale, "نقاط الاتجاه"));
+    case "push": {
+      const t = /^([01]\d|2[0-3]):[0-5]\d$/;
+      return first(t.test(String(v.quiet_from)) && t.test(String(v.quiet_to)) ? null : "أوقات الهدوء بصيغة 20:00", between("max_per_run", 1, 20, "أقصى عدد إشعارات"));
+    }
     case "data":
       return between("trash_retention_days", 1, 365, "مدة الاحتفاظ");
     case "labels":

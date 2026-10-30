@@ -8,6 +8,13 @@ import { semesterFor, today } from "@/lib/dates";
 import { downloadJson } from "@/lib/excel";
 import { BACKUP_TABLES, BACKUP_VERSION } from "@/lib/backup-tables";
 import { validateSection } from "@/lib/validate-settings";
+import { RULES, type Rule } from "@/lib/alerts";
+import { PushDevices } from "@/components/push-settings";
+
+const RULE_NAMES: Record<Rule, string> = {
+  absence_streak: "غياب متتالٍ", unlogged: "حصص غير مسجلة", low_attendance: "نسبة حضور منخفضة", hw_streak: "وظائف ناقصة متتالية",
+  disruption: "شغب متكرر", below_pass: "تحت علامة النجاح", drop: "هبوط مفاجئ", missing_grades: "علامات ناقصة",
+};
 import { clearErrors, friendly, readErrors, type LoggedError } from "@/lib/errors";
 import { WEEKDAYS } from "@/lib/types";
 import { Info } from "@/components/info";
@@ -32,6 +39,8 @@ const FIELD_LABELS: Record<string, string> = {
   show_bars: "رسم النهائي في كل مادة", show_attendance: "الحضور والسلوك حسب المادة", show_trajectory: "مسار العلامات (الرسم)",
   show_weekly: "الرسم بالأسابيع (غياب، مشاركة، شغب)", show_compare: "مقارنة النصفين", show_class_rank: "الترتيب في الصف وفي كل مادة",
   show_class_avg: "معدل الصف (للمقارنة)", allow_pdf: "زر «تحميل PDF» للطالب",
+  rules: "التنبيهات التي تصل كإشعار", quiet_from: "لا إشعارات من الساعة", quiet_to: "حتى الساعة",
+  weekend_off: "لا إشعارات في العطلة الأسبوعية", max_per_run: "أقصى عدد إشعارات في كل مرة",
   trash_retention_days: "مدة الاحتفاظ بالمحذوفات (أيام)",
   home: "الصفحة الرئيسية", now_before_minutes: "«الآن» يبدأ قبل الحصة بـ (دقائق)", now_after_minutes: "«الآن» يبقى بعد نهاية الحصة (دقائق)",
   country_code: "مفتاح الدولة", period: "فترة الأرقام في الرسالة", template: "قالب الرسالة",
@@ -100,6 +109,11 @@ const FIELD_INFO: Record<string, string> = {
   show_class_rank: "⚠ لحساب الترتيب يُرسل إلى صفحة الطالب علامات زملائه بدون أسماء وبترتيب عشوائي. أوقفه إذا لا تريد ذلك.",
   show_class_avg: "⚠ مثل الترتيب: يحتاج علامات الزملاء بدون أسماء لحساب معدل الصف.",
   allow_pdf: "الطالب يستطيع تحميل صفحته كملف PDF (نفس ما يراه).",
+  rules: "التنبيهات المختارة تصل إلى تلفونك حتى لو كان الموقع مسكّراً. الباقي يبقى في الجرس داخل الموقع. التنبيه نفسه لا يصل مرتين إلا إذا تغيّرت حالته (مثلاً غياب جديد).",
+  quiet_from: "ساعات الهدوء (توقيت بيروت). التنبيهات التي تحدث خلالها تصل بعد انتهائها.",
+  quiet_to: "نهاية ساعات الهدوء.",
+  weekend_off: "حسب أيام العطلة الأسبوعية في الإعدادات ← السنة الدراسية.",
+  max_per_run: "التنبيهات تُجمع (مثلاً «3 طلاب غابوا 3 مرات متتالية» في إشعار واحد). هذا أقصى عدد إشعارات كل ساعة.",
   bands: "كل علامة ≥ الحد الأدنى تأخذ هذا التقدير. الترتيب لا يهم.",
   trash_retention_days: "العناصر المحذوفة تبقى في سلة المحذوفات هذه المدة ثم تُحذف نهائياً.",
   home: "البرنامج الأسبوعي (حصص الأسبوع بأوقاتها) أو قائمة الصفوف كما في الإصدار الأول.",
@@ -150,6 +164,7 @@ const HINTS: Partial<Record<EditableKey, string>> = {
   report: "تقرير PDF لكل طالب (صفحة A4): من صفحة الصف ← «تقارير PDF». الشعار والتوقيع من الملف الشخصي.",
   alerts: "تنبيهات الجرس في أعلى الموقع. كل قاعدة يمكن إيقافها، وكل رقم قابل للتعديل. تُرسل أيضاً كملخص في إيميل النسخة الأسبوعية.",
   trajectory: "رسم مسار الطالب في صفحته، والسهم ↑ ↓ → بجانب اسمه.",
+  push: "الإشعارات تُرسل كل ساعة من مهمة «Push notifications» على GitHub (بدون خادم). فعّلها على كل جهاز تريد أن تصله.",
 };
 
 export default function SettingsPage() {
@@ -277,6 +292,7 @@ function SectionEditor<K extends EditableKey>({ k, initial }: { k: K; initial: S
 
       {k === "data" && <DataTools />}
       {k === "profile" && <ReportImages />}
+      {k === "push" && <PushDevices />}
 
       <div className="grid gap-4 sm:grid-cols-2">
         {Object.keys(def).map((key) => {
@@ -346,6 +362,28 @@ function SectionEditor<K extends EditableKey>({ k, initial }: { k: K; initial: S
             );
           }
           if (key === "logo_url") return null; // الشعار يُرفع كصورة أدناه
+          if (key === "rules") {
+            const arr = (val as string[]) ?? [];
+            return (
+              <Field key={key} label={label} info={FIELD_INFO[key]}>
+                <div className="flex flex-wrap gap-1">
+                  {RULES.map((r) => (
+                    <button key={r} type="button" onClick={() => set(key, arr.includes(r) ? arr.filter((x) => x !== r) : [...arr, r])}
+                      className={cx("rounded-md px-2 py-1 text-xs", arr.includes(r) ? "bg-brand-500 text-white" : "bg-zinc-100 line-through dark:bg-zinc-800")}>
+                      {RULE_NAMES[r]}
+                    </button>
+                  ))}
+                </div>
+              </Field>
+            );
+          }
+          if (key === "quiet_from" || key === "quiet_to") {
+            return (
+              <Field key={key} label={label} info={FIELD_INFO[key]}>
+                <Input type="time" dir="ltr" value={(val as string) ?? ""} onChange={(e) => set(key, e.target.value)} />
+              </Field>
+            );
+          }
           const isDate = ["start", "sem1_end", "end"].includes(key);
           return (
             <Field key={key} label={label} info={k === "labels" ? "غيّر الاسم كما تريد أن يظهر في كل الموقع وفي التصدير وصفحة الطالب." : FIELD_INFO[key]}>

@@ -31,6 +31,17 @@ export function AlertsProvider({ children }: { children: ReactNode }) {
   const [data, setData] = useState<AlertData | null>(null);
   const [states, setStates] = useState<AlertState[]>([]);
   const [panel, setPanel] = useState(false);
+  // من إشعار على التلفون: ?alerts=1 يفتح قائمة التنبيهات
+  useEffect(() => {
+    try {
+      const u = new URL(window.location.href);
+      if (u.searchParams.get("alerts") === "1") {
+        setPanel(true);
+        u.searchParams.delete("alerts");
+        window.history.replaceState(null, "", u.pathname + (u.search || ""));
+      }
+    } catch { /* لا شيء */ }
+  }, []);
   const last = useRef(0);
   const busy = useRef(false);
   const path = usePathname();

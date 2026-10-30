@@ -38,6 +38,8 @@ jobs:
           # تُضاف من: Settings ← Secrets and variables ← Actions ← Variables
           NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          # مفتاح الإشعارات العام (اختياري — بدونه تبقى الإشعارات معطّلة)
+          NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${{ vars.NEXT_PUBLIC_VAPID_PUBLIC_KEY }}
           # مثال: /grade-system  (يُحسب تلقائياً من اسم المستودع)
           NEXT_PUBLIC_BASE_PATH: ${{ steps.pages.outputs.base_path }}
 

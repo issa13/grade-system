@@ -8,7 +8,7 @@ const VERSION = "__BUILD_ID__";
 const CACHE = "gs-" + VERSION;
 const SCOPE = new URL(self.registration.scope).pathname; // مثلاً /grade-system/
 const ROUTES = ["", "schedule/", "classes/", "session/", "subject/", "class/", "student/", "stats/", "settings/", "login/", "trash/", "audit/", "report/"];
-const EXTRA = ["manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png"];
+const EXTRA = ["manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png", "icons/badge-72.png"];
 
 const keyOf = (url) => { const u = new URL(url); return u.origin + u.pathname; };
 const isStudentPage = (u) => u.pathname.startsWith(SCOPE + "s/");
@@ -96,4 +96,39 @@ self.addEventListener("fetch", (event) => {
   }
   // بيانات التنقل بين الصفحات (.txt) وباقي الملفات
   event.respondWith(networkFirst(req, keyOf(req.url)));
+});
+
+// ---------- إشعارات على التلفون (Push) ----------
+// تُرسل من مهمة GitHub Actions (scripts/push.mjs) كل ساعة. الحمولة: { title, body, url, tag }
+self.addEventListener("push", (event) => {
+  let d = {};
+  try { d = event.data ? event.data.json() : {}; } catch (e) { d = { body: event.data ? event.data.text() : "" }; }
+  const title = d.title || "نظام العلامات";
+  event.waitUntil(self.registration.showNotification(title, {
+    body: d.body || "",
+    icon: SCOPE + "icons/icon-192.png",
+    badge: SCOPE + "icons/badge-72.png",
+    tag: d.tag || undefined,
+    renotify: !!d.tag,
+    lang: "ar",
+    dir: "rtl",
+    data: { url: d.url || "" },
+  }));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const path = String((event.notification.data && event.notification.data.url) || "").replace(/^\/+/, "");
+  const target = new URL(SCOPE + path, self.location.origin).href;
+  event.waitUntil((async () => {
+    const wins = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    for (const w of wins) {
+      if (new URL(w.url).pathname.startsWith(SCOPE) && "focus" in w) {
+        await w.focus();
+        if ("navigate" in w) { try { await w.navigate(target); } catch (e) { /* لا شيء */ } }
+        return;
+      }
+    }
+    await self.clients.openWindow(target);
+  })());
 });

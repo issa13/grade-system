@@ -157,6 +157,14 @@ export const DEFAULT_SETTINGS = {
     trend_window: 3, // الاتجاه يُحسب من آخر هذا العدد من العلامات
     trend_points: 1, // «يتحسّن» / «يتراجع» إذا تغيّرت أكثر من هذا العدد
   },
+  push: {
+    // التنبيهات التي تصل كإشعار على التلفون (الباقي يبقى في الجرس داخل الموقع فقط)
+    rules: ["absence_streak", "unlogged", "low_attendance", "drop"] as string[],
+    quiet_from: "20:00", // لا إشعارات من هذه الساعة…
+    quiet_to: "07:00", // …حتى هذه الساعة
+    weekend_off: true, // لا إشعارات في أيام العطلة الأسبوعية
+    max_per_run: 4, // أقصى عدد إشعارات في كل مرة (كل ساعة)
+  },
   // الشعار والتوقيع (صور مصغّرة). التوقيع لا يُرسل أبداً إلى صفحة الطالب.
   report_images: { logo: "", signature: "" },
   // إعدادات محفوظة لنصف معيّن عندما يختار الأستاذ تطبيق التغيير على النصف الحالي فقط.
@@ -189,6 +197,7 @@ export const SECTION_TITLES: Record<EditableKey, string> = {
   report: "التقرير",
   alerts: "التنبيهات",
   trajectory: "المسار",
+  push: "الإشعارات",
   data: "البيانات",
 };
 

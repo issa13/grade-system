@@ -4,62 +4,29 @@
 //
 // المستودع عام: لا يُطبع أي اسم أو علامة في السجل (فقط أعداد)، ولا يُحفظ أي ملف في المستودع.
 
-import { createClient } from "@supabase/supabase-js";
 import writeXlsxFile from "write-excel-file/node";
 import nodemailer from "nodemailer";
 import { BACKUP_TABLES, BACKUP_VERSION } from "../src/lib/backup-tables.ts";
 import { aggregate } from "../src/lib/behavior.ts";
 import { computeRow } from "../src/lib/grades.ts";
 import { effectiveSettings, mergeSettings } from "../src/lib/settings.ts";
+import { adminClient, alertDataFor, beirutNow, env, loadTables, requireEnv, settingsByOwner } from "./shared.mjs";
 import { compareSheet, gradeSheet, summarySheet } from "../src/lib/exports.ts";
 import { hasSemester2 } from "../src/lib/compare.ts";
 import { toXlsxSheets } from "../src/lib/xlsx-sheets.ts";
 import { computeAlerts, groupAlerts, visibleAlerts } from "../src/lib/alerts.ts";
 import { addDays } from "../src/lib/schedule.ts";
 
-const env = (k, ...alt) => { for (const n of [k, ...alt]) if (process.env[n]) return process.env[n]; return ""; };
-const URL_ = env("SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_URL");
-const KEY = env("SUPABASE_SERVICE_ROLE_KEY");
 const SMTP_USER = env("SMTP_USER");
 const SMTP_PASS = env("SMTP_PASS");
 const TO = env("BACKUP_TO") || SMTP_USER;
 const DRY = process.argv.includes("--dry-run"); // يبني الملفين في مجلد مؤقت بدون إرسال (للتجربة على الجهاز)
+if (!DRY) requireEnv({ SMTP_USER, SMTP_PASS });
 
-for (const [k, v] of Object.entries({ SUPABASE_URL: URL_, SUPABASE_SERVICE_ROLE_KEY: KEY, ...(DRY ? {} : { SMTP_USER, SMTP_PASS }) })) {
-  if (!v) { console.error(`ينقص السر ${k} (Settings ← Secrets and variables ← Actions)`); process.exit(1); }
-}
-
-const sb = createClient(URL_, KEY, { auth: { persistSession: false, autoRefreshToken: false } });
-
-async function all(table) {
-  const out = [];
-  for (let from = 0; ; from += 1000) {
-    const { data, error } = await sb.from(table).select("*").range(from, from + 999);
-    if (error) throw new Error(`${table}: ${error.message}`);
-    out.push(...(data ?? []));
-    if (!data || data.length < 1000) break;
-  }
-  return out;
-}
-
-const todayISO = new Date(Date.now() + 2 * 3600e3).toISOString().slice(0, 10); // توقيت بيروت تقريباً
-const tables = {};
-for (const t of BACKUP_TABLES) {
-  tables[t] = await all(t);
-  console.log(`${t}: ${tables[t].length} سطر`);
-}
-
-// ---------- الإعدادات لكل أستاذ (حساب) ----------
-const settingsOf = new Map();
-const weightsOf = new Map();
-for (const owner of new Set(tables.settings.map((r) => r.owner_id).concat(tables.classes.map((c) => c.owner_id)))) {
-  const rows = tables.settings.filter((r) => r.owner_id === owner);
-  const obj = Object.fromEntries(rows.map((r) => [r.key, r.value]));
-  settingsOf.set(owner, mergeSettings(obj));
-  const w = {};
-  for (const r of rows) if (r.key.startsWith("subject:")) w[r.key.slice(8)] = r.value;
-  weightsOf.set(owner, w);
-}
+const sb = adminClient();
+const todayISO = beirutNow().date;
+const tables = await loadTables(sb, BACKUP_TABLES);
+const { settingsOf, weightsOf } = settingsByOwner(tables);
 
 // ---------- ملف Excel ----------
 const sheets = [];
@@ -133,19 +100,7 @@ let alertCount = 0;
 for (const [owner, s] of settingsOf) {
   const ownClasses = tables.classes.filter((c) => c.owner_id === owner && !c.deleted_at && !c.archived);
   if (!ownClasses.length) continue;
-  const data = {
-    classes: ownClasses,
-    students: tables.students.filter((x) => x.owner_id === owner),
-    subjects: tables.subjects.filter((x) => x.owner_id === owner),
-    slots: tables.schedule_slots.filter((x) => x.owner_id === owner),
-    sessions: tables.sessions.filter((x) => x.owner_id === owner),
-    records: tables.session_records.filter((x) => x.owner_id === owner),
-    grades: tables.grade_entries.filter((x) => x.owner_id === owner),
-    assignments: tables.assignments.filter((x) => x.owner_id === owner && !x.deleted_at),
-    submissions: tables.assignment_submissions.filter((x) => x.owner_id === owner),
-    dates: tables.assessment_dates.filter((x) => x.owner_id === owner),
-    weights: weightsOf.get(owner) ?? {},
-  };
+  const data = alertDataFor(owner, tables, weightsOf);
   const states = tables.alert_states.filter((x) => x.owner_id === owner);
   for (const g of groupAlerts(visibleAlerts(computeAlerts(data, s, todayISO), states, todayISO), s)) {
     alertCount += g.items.length;

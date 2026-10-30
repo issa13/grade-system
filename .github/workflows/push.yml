@@ -1,0 +1,49 @@
+# إشعارات على التلفون: كل ساعة تُحسب التنبيهات وتُرسل الجديدة منها إلى أجهزة الأستاذ.
+# ساعات الهدوء والعطلة الأسبوعية من الموقع: الإعدادات ← الإشعارات.
+# تجربة: Actions ← Push notifications ← Run workflow ← اختر «test».
+#
+# يحتاج (Settings ← Secrets and variables ← Actions):
+#   Variables: NEXT_PUBLIC_VAPID_PUBLIC_KEY (نفسه للموقع)
+#   Secrets:   VAPID_PRIVATE_KEY, SUPABASE_SERVICE_ROLE_KEY
+name: Push notifications
+
+on:
+  schedule:
+    - cron: "37 * * * *" # كل ساعة (ساعات الهدوء تُطبّق داخل السكربت بتوقيت بيروت)
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "normal = التنبيهات الجديدة · test = إشعار تجربة لكل الأجهزة"
+        type: choice
+        options: [normal, test]
+        default: normal
+
+permissions:
+  contents: read
+
+concurrency:
+  group: push
+  cancel-in-progress: false
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: latest
+          cache: npm
+
+      - run: npm ci
+
+      - name: إرسال الإشعارات
+        run: npx tsx scripts/push.mjs ${{ github.event.inputs.mode == 'test' && '--test' || '' }}
+        env:
+          SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          VAPID_PUBLIC_KEY: ${{ vars.NEXT_PUBLIC_VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_SUBJECT: ${{ secrets.SMTP_USER }}

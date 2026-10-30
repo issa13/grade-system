@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 
 /** رقم نسخة قاعدة البيانات الذي يحتاجه هذا الإصدار من الموقع. */
-export const REQUIRED_SCHEMA = 3;
+export const REQUIRED_SCHEMA = 4;
 
 /**
  * إذا نسي الأستاذ تشغيل ملف تحديث في Supabase، تتعطل ميزات بدون رسالة واضحة.
@@ -22,7 +22,9 @@ export function SchemaCheck() {
         const files: string[] = [];
         const k = await sb.from("keepalive").select("id").limit(1);
         if (k.error && (k.status === 404 || /does not exist|PGRST205|schema cache/i.test(k.error.message))) files.push("002_v2.sql");
-        files.push("003_student_stats.sql");
+        const v = error ? 0 : Number(data);
+        if (v < 3) files.push("003_student_stats.sql");
+        files.push("004_push.sql");
         setMissing(files);
       } catch { /* لا شيء */ }
     })();

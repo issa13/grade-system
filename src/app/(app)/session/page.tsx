@@ -2,12 +2,13 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { loadSessionBundle } from "@/lib/session-data";
+import { ensureSession, loadSessionBundle } from "@/lib/session-data";
+import { sessionIdFor } from "@/lib/ids";
 import { enqueue, onSessionRemap } from "@/lib/outbox";
 import { useSync } from "@/components/sync-status";
 import { logError } from "@/lib/errors";
 import { WhatsAppQueue } from "@/components/whatsapp";
-import { fmtDate, today, weekdayOf } from "@/lib/dates";
+import { fmtDate, semesterFor, today, weekdayOf } from "@/lib/dates";
 import { WEEKDAYS, type ClassRow, type Session, type SessionRecord, type Student, type Subject } from "@/lib/types";
 import { useSettings } from "@/components/settings-provider";
 import { Info } from "@/components/info";
@@ -49,7 +50,19 @@ function SessionPageView({ id }: { id: string }) {
   useEffect(() => {
     (async () => {
       let b;
-      try { setErr(false); b = await loadSessionBundle(id); } catch (e) { logError(e); setErr(true); return; }
+      try {
+        setErr(false);
+        b = await loadSessionBundle(id);
+        // من إشعار «حصة غير مسجلة» لحصة لم تُنشأ بعد: تُنشأ الآن (بنفس المعرّف، بدون تكرار)
+        if (!b) {
+          const q = new URLSearchParams(window.location.search);
+          const slot = q.get("slot"), date = q.get("date"), subject = q.get("subject");
+          if (slot && date && subject && /^\d{4}-\d{2}-\d{2}$/.test(date) && sessionIdFor(slot, date) === id) {
+            ensureSession({ id, subject_id: subject, schedule_slot_id: slot, date, semester: semesterFor(date, settings) });
+            b = await loadSessionBundle(id);
+          }
+        }
+      } catch (e) { logError(e); setErr(true); return; }
       setSession(b?.session ?? null);
       if (!b) return;
       setSubject(b.subject);
@@ -61,7 +74,7 @@ function SessionPageView({ id }: { id: string }) {
       latest.current = m;
       setSiblings(b.siblings);
     })();
-  }, [id, retry]);
+  }, [id, retry, settings.year.sem1_end]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // إذا تبيّن أن الحصة أُنشئت من جهاز آخر بمعرّف مختلف، ننتقل إليها
   useEffect(() => onSessionRemap((from, to) => { if (from === id) router.replace(`/session?id=${to}`); }), [id, router]);

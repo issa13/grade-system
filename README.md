@@ -68,6 +68,25 @@
    ثم جرّبها: **Actions ← Weekly backup ← Run workflow**. يصل الإيميل خلال دقائق. إذا فشلت، GitHub يرسل لك إيميلاً تلقائياً.
 4. **Keepalive:** لا يحتاج أسراراً جديدة (يستعمل نفس المتغيرين `NEXT_PUBLIC_SUPABASE_URL` و `NEXT_PUBLIC_SUPABASE_ANON_KEY`). جرّبه مرة: **Actions ← Keepalive ← Run workflow**، ثم تأكد في الموقع: **الإعدادات ← البيانات ← «آخر نبضة»**.
 
+## الإشعارات على التلفون (التحديث 4)
+
+التنبيهات المهمة تصل إلى تلفونك حتى لو كان الموقع مسكّراً. بدون خادم: مهمة على GitHub تعمل كل ساعة، تحسب التنبيهات بنفس محرك الموقع، وترسل الجديدة منها فقط.
+
+**الإعداد (مرة واحدة):**
+1. Supabase ← **SQL Editor**: شغّل `supabase/migrations/004_push.sql`.
+2. على جهازك داخل مجلد المشروع: `npm install` ثم `npm run vapid`. يطبع مفتاحين: **Public Key** و **Private Key**.
+3. في المستودع على GitHub ← **Settings ← Secrets and variables ← Actions**:
+   - تبويب **Variables**: `NEXT_PUBLIC_VAPID_PUBLIC_KEY` = المفتاح العام.
+   - تبويب **Secrets**: `VAPID_PRIVATE_KEY` = المفتاح الخاص. (لا تضعه في أي ملف ولا في الموقع.)
+   - `SUPABASE_SERVICE_ROLE_KEY` موجود من النسخة الاحتياطية.
+4. ارفع التحديث (push إلى main) حتى يُبنى الموقع بالمفتاح العام.
+5. على كل جهاز: الموقع ← **الإعدادات ← الإشعارات ← «🔔 تفعيل الإشعارات على هذا الجهاز»**.
+   - **أندرويد:** من Chrome مباشرة.
+   - **آيفون (iOS 16.4+):** أولاً Safari ← مشاركة ← «إضافة إلى الشاشة الرئيسية»، ثم افتح التطبيق من الأيقونة وفعّل من داخله.
+6. تجربة: GitHub ← **Actions ← Push notifications ← Run workflow ← test**. يصل «تجربة ✓» إلى كل الأجهزة خلال دقيقة.
+
+**كيف يعمل:** اختر التنبيهات التي تصل كإشعار (الافتراضي: غياب متتالٍ، حصص غير مسجلة، نسبة حضور منخفضة، هبوط مفاجئ) وساعات الهدوء (20:00–07:00) والعطلة الأسبوعية من الإعدادات ← الإشعارات. التنبيهات المتشابهة تُجمع في إشعار واحد، ونفس التنبيه لا يصل مرتين إلا إذا تغيّرت حالته. الضغط على الإشعار يفتح الطالب أو الحصة مباشرة. ملاحظة: GitHub قد يؤخّر المهام المجدولة بضع دقائق.
+
 ## التحديث 3 (إحصائيات الطالب، تحميل PDF، حماية البيانات)
 
 1. Supabase ← **SQL Editor**: شغّل `supabase/migrations/003_student_stats.sql` مرة واحدة (بعد 002). إذا نسيت، يظهر في الموقع شريط أحمر يقول أي ملف تشغّل.
@@ -130,6 +149,7 @@
 ## للمطوّرين
 - `npm test` — اختبارات محرك حساب العلامات (`src/lib/grades.test.ts`)
 - `npm run build` — بناء الموقع الثابت في المجلد `out/`
-- مخطط قاعدة البيانات: `supabase/schema.sql` ثم `supabase/migrations/002_v2.sql` ثم `003_student_stats.sql` (كلها آمنة لإعادة التشغيل). عند إضافة ملف جديد: ارفع `app_schema_version()` و `REQUIRED_SCHEMA` في `src/components/schema-check.tsx`.
+- مخطط قاعدة البيانات: `supabase/schema.sql` ثم `supabase/migrations/002_v2.sql` ثم `003_student_stats.sql` ثم `004_push.sql` (كلها آمنة لإعادة التشغيل). عند إضافة ملف جديد: ارفع `app_schema_version()` و `REQUIRED_SCHEMA` في `src/components/schema-check.tsx`.
+- `npm run push -- --dry-run` — حساب الإشعارات بدون إرسال · `npm run vapid` — إنشاء مفتاحَي الإشعارات
 - `npm run backup -- --dry-run` — تجربة النسخة الاحتياطية على جهازك بدون إرسال (يحتاج `SUPABASE_URL` و `SUPABASE_SERVICE_ROLE_KEY`)
 - `public/sw.js` — رقم النسخة يُكتب تلقائياً بعد البناء (`scripts/sw-version.mjs`)
