@@ -40,6 +40,25 @@ export function Input(p: React.InputHTMLAttributes<HTMLInputElement>) {
   );
 }
 
+/** حقل كلمة مرور مع زر 👁 لإظهارها / إخفائها. */
+export function PasswordInput({ className, ...p }: Omit<React.InputHTMLAttributes<HTMLInputElement>, "type">) {
+  const [show, setShow] = useState(false);
+  return (
+    <span className="relative block" dir="ltr">
+      <Input {...p} type={show ? "text" : "password"} autoCapitalize="none" autoCorrect="off" spellCheck={false} className={cx("pr-11", className)} />
+      <button type="button" onClick={() => setShow((v) => !v)} onMouseDown={(e) => e.preventDefault() /* لا يسكّر الكيبورد */} aria-pressed={show}
+        aria-label={show ? "إخفاء كلمة المرور" : "إظهار كلمة المرور"} title={show ? "إخفاء كلمة المرور" : "إظهار كلمة المرور"}
+        className="absolute inset-y-0 right-0 flex w-11 items-center justify-center rounded-r-lg text-zinc-500 hover:text-zinc-800 focus-visible:outline-2 focus-visible:outline-brand-500 dark:text-zinc-400 dark:hover:text-zinc-100">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
+          <circle cx="12" cy="12" r="3" />
+          {show && <path d="M3 3l18 18" />}
+        </svg>
+      </button>
+    </span>
+  );
+}
+
 export function Select(p: React.SelectHTMLAttributes<HTMLSelectElement>) {
   return (
     <select

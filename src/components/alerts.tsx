@@ -110,7 +110,8 @@ export function AlertsProvider({ children }: { children: ReactNode }) {
     return () => {
       document.removeEventListener("visibilitychange", vis);
       window.removeEventListener(NOTIFY_CHANGED, replan);
-      handle.then((h) => h.remove()).catch(() => {});
+      // Capacitor يرجع أحياناً { remove } مباشرة وأحياناً Promise — الاثنان مقبولان
+      Promise.resolve(handle).then((h) => h?.remove()).catch(() => {});
     };
   }, [refresh, router]);
 

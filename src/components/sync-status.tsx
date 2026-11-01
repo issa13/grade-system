@@ -2,7 +2,7 @@
 import { useState, useSyncExternalStore } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { getState, resolveRejected, resumeAfterLogin, subscribe, type Rejected } from "@/lib/outbox";
-import { Button, Field, Input, Modal, cx, useToast } from "./ui";
+import { Button, Field, Input, Modal, cx, useToast, PasswordInput } from "./ui";
 
 export function useSync() {
   return useSyncExternalStore(subscribe, getState, getState);
@@ -120,7 +120,7 @@ export function Relogin() {
       <form onSubmit={submit} className="space-y-3">
         <p className="text-sm text-zinc-600 dark:text-zinc-300">انتهت مدة تسجيل الدخول. لديك <b>{s.pending}</b> تغييرات محفوظة على هذا الجهاز وستُرسل بعد إدخال كلمة المرور. لن يضيع شيء.</p>
         <Field label="البريد الإلكتروني"><Input type="email" required dir="ltr" value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
-        <Field label="كلمة المرور"><Input type="password" required autoFocus dir="ltr" value={pw} onChange={(e) => setPw(e.target.value)} /></Field>
+        <Field label="كلمة المرور"><PasswordInput required autoFocus dir="ltr" value={pw} onChange={(e) => setPw(e.target.value)} /></Field>
         <div className="flex justify-end gap-2">
           <Button type="button" variant="secondary" onClick={() => setDismissed(true)}>لاحقاً</Button>
           <Button disabled={busy}>دخول وإرسال</Button>

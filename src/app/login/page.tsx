@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { absoluteUrl } from "@/lib/paths";
 import { supabase } from "@/lib/supabase/client";
-import { Button, Card, Field, Input } from "@/components/ui";
+import { Button, Card, Field, Input, PasswordInput } from "@/components/ui";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -55,7 +55,7 @@ export default function LoginPage() {
           </Field>
           {mode !== "forgot" && (
             <Field label="كلمة المرور">
-              <Input type="password" dir="ltr" required minLength={6} value={password} onChange={(e) => setPassword(e.target.value)}
+              <PasswordInput dir="ltr" required minLength={6} value={password} onChange={(e) => setPassword(e.target.value)}
                 autoComplete={mode === "login" ? "current-password" : "new-password"} />
             </Field>
           )}

@@ -29,7 +29,8 @@ export type LNPlugin = {
   createChannel?(c: { id: string; name: string; description?: string; importance?: number; visibility?: number; vibration?: boolean }): Promise<void>;
   schedule(o: { notifications: LocalNotification[] }): Promise<unknown>;
   cancel(o: { notifications: { id: number }[] }): Promise<void>;
-  addListener(ev: "localNotificationActionPerformed", fn: (e: { notification: { extra?: Record<string, unknown> } }) => void): Promise<{ remove: () => Promise<void> }>;
+  // داخل التطبيق يرجع { remove } مباشرة (وليس Promise) — يجب قبول الاثنين
+  addListener(ev: "localNotificationActionPerformed", fn: (e: { notification: { extra?: Record<string, unknown> } }) => void): { remove: () => unknown } | Promise<{ remove: () => unknown }>;
 };
 type Cap = { isNativePlatform?: () => boolean; Plugins?: { LocalNotifications?: LNPlugin } };
 
