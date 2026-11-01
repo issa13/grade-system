@@ -1,0 +1,13 @@
+/* native-app.css — موجود فقط داخل تطبيق أندرويد (copy-web.js يضيفه لكل صفحة).
+   لمسات صغيرة تجعل الموقع يشبه تطبيقاً مثبّتاً. */
+
+/* الضغط على زر لا يُظهر مربعاً رمادياً، والضغط الطويل لا يحدّد نصّه.
+   أسماء الطلاب والعلامات وباقي المحتوى تبقى قابلة للتحديد والنسخ. */
+html.native-app button,
+html.native-app [role="button"],
+html.native-app header,
+html.native-app nav {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+}

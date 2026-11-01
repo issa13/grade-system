@@ -1,0 +1,27 @@
+{
+  "appId": "io.github.issa13.gradesystem",
+  "appName": "العلامات",
+  "webDir": "www",
+  "backgroundColor": "#fafafa",
+  "android": {
+    "allowMixedContent": false
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 3000,
+      "launchAutoHide": true,
+      "launchFadeOutDuration": 200,
+      "backgroundColor": "#fafafa",
+      "showSpinner": false
+    },
+    "SystemBars": {
+      "insetsHandling": "css",
+      "style": "DEFAULT",
+      "initialViewportFitValueHint": "contain"
+    },
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_grades",
+      "iconColor": "#1F7A68"
+    }
+  }
+}

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { currentSubscription, disablePush, enablePush, localTest, pushSupport, type PushSupport } from "@/lib/push";
 import { friendly, logError } from "@/lib/errors";
+import { appNotifyEnabled, appNotifyPermission, appNotifyTest, isNativeApp, setAppNotify } from "@/lib/native-notify";
 import { Info } from "./info";
 import { Button, cx, useToast } from "./ui";
 
@@ -17,6 +18,61 @@ const MSG: Record<Exclude<PushSupport, "ok">, string> = {
 
 /** تفعيل الإشعارات على هذا الجهاز + قائمة الأجهزة المفعّلة. */
 export function PushDevices() {
+  const [app, setApp] = useState(false);
+  useEffect(() => setApp(isNativeApp()), []);
+  return app ? <AppNotifications /> : <WebPushDevices />;
+}
+
+/** داخل تطبيق أندرويد: الإشعارات تُحسب وتُجدول على التلفون نفسه (lib/native-notify.ts). */
+function AppNotifications() {
+  const toast = useToast();
+  const [on, setOn] = useState<boolean | null>(null);
+  const [perm, setPerm] = useState<string>("");
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(async () => {
+    const p = await appNotifyPermission();
+    setPerm(p);
+    setOn(appNotifyEnabled() && p === "granted");
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  async function toggle(next: boolean) {
+    setBusy(true);
+    const p = await setAppNotify(next);
+    if (next && p !== "granted") toast({ text: "لم تُعطِ الإذن. افتح إعدادات التلفون ← التطبيقات ← العلامات ← الإشعارات، واسمح بها.", kind: "err" });
+    else if (next) { toast({ text: "فُعّلت الإشعارات على هذا التلفون", kind: "ok" }); await appNotifyTest().catch(() => {}); }
+    else toast({ text: "أُوقفت الإشعارات على هذا التلفون", kind: "ok" });
+    setBusy(false);
+    load();
+  }
+
+  return (
+    <div className="mb-6 space-y-2 border-b border-zinc-100 pb-6 text-sm dark:border-zinc-800">
+      <div className="rounded-lg bg-zinc-50 p-3 dark:bg-zinc-800/50">
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <b>هذا التلفون:</b>
+          {on === null ? "…" : on ? <span className="text-green-700 dark:text-green-400">✓ الإشعارات مفعّلة</span>
+            : perm === "denied" ? <span className="text-red-600">الإذن مرفوض في إعدادات التلفون</span>
+            : <span className="text-zinc-500">غير مفعّلة</span>}
+          <div className="flex-1" />
+          {on ? (
+            <>
+              <Button size="sm" variant="secondary" disabled={busy} onClick={() => appNotifyTest().then(() => toast({ text: "أُرسل إشعار تجربة", kind: "ok" })).catch((e) => toast({ text: friendly(e), kind: "err" }))}>إشعار تجربة</Button>
+              <Button size="sm" variant="ghost" disabled={busy} onClick={() => toggle(false)}>إيقاف</Button>
+            </>
+          ) : <Button size="sm" disabled={busy || on === null} onClick={() => toggle(true)}>🔔 تفعيل الإشعارات على هذا التلفون</Button>}
+        </div>
+        <p className="text-xs leading-6 text-zinc-600 dark:text-zinc-400">
+          في التطبيق تُحسب التنبيهات على التلفون نفسه كلما فتحته، وتُجدول للأيام السبعة القادمة (مثلاً حصة لم تُسجّلها)،
+          فتصل حتى لو كان التطبيق مسكّراً. تُطبَّق عليها الإعدادات أدناه (الأنواع، ساعات الهدوء، العطلة).
+          إذا لم تفتح التطبيق أسبوعاً كاملاً تتوقف حتى تفتحه من جديد.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function WebPushDevices() {
   const toast = useToast();
   const [support, setSupport] = useState<PushSupport | null>(null);
   const [mine, setMine] = useState<string | null>(null); // endpoint هذا الجهاز

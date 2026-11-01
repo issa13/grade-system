@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Light theme: page header (bg-white) and page background (bg-zinc-50). -->
+    <color name="gs_bars_background">#FFFFFF</color>
+    <color name="gs_splash_background">#FAFAFA</color>
+</resources>

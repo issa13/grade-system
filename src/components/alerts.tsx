@@ -13,6 +13,7 @@ import { useSettings } from "./settings-provider";
 import { WhatsAppQueue } from "./whatsapp";
 import { Button, Modal, cx, useToast } from "./ui";
 import { friendly, logError } from "@/lib/errors";
+import { NOTIFY_CHANGED, isNativeApp, nativeLN, replanAppNotifications } from "@/lib/native-notify";
 
 type Ctx = {
   groups: AlertGroup[];
@@ -84,6 +85,34 @@ export function AlertsProvider({ children }: { children: ReactNode }) {
       refresh(true);
     }
   }, [t, toast, refresh]);
+
+  // تطبيق أندرويد فقط: جدولة الإشعارات على التلفون (lib/native-notify.ts). على الموقع لا شيء.
+  const latest = useRef({ data, states, settings });
+  latest.current = { data, states, settings };
+  useEffect(() => { if (isNativeApp()) replanAppNotifications(data, states, settings); }, [data, states, settings]);
+  const router = useRouter();
+  useEffect(() => {
+    const ln = nativeLN();
+    if (!ln) return;
+    const replan = () => replanAppNotifications(latest.current.data, latest.current.states, latest.current.settings);
+    // الرجوع إلى التطبيق: بيانات جديدة (والتاريخ ربما تغيّر). الخروج منه: آخر ما سجّلته يلغي إشعاره.
+    const vis = () => { refresh(true); if (document.visibilityState === "visible") replan(); };
+    document.addEventListener("visibilitychange", vis);
+    window.addEventListener(NOTIFY_CHANGED, replan);
+    // الضغط على إشعار: يفتح الحصة / الطالب / قائمة التنبيهات
+    const handle = ln.addListener("localNotificationActionPerformed", (e) => {
+      const x = e?.notification?.extra ?? {};
+      if (typeof x.href === "string") {
+        if (x.create) ensureSession(x.create as Parameters<typeof ensureSession>[0]);
+        router.push(x.href);
+      } else if (x.alerts) setPanel(true);
+    });
+    return () => {
+      document.removeEventListener("visibilitychange", vis);
+      window.removeEventListener(NOTIFY_CHANGED, replan);
+      handle.then((h) => h.remove()).catch(() => {});
+    };
+  }, [refresh, router]);
 
   const ctx: Ctx = {
     groups, count, loaded: !!data,

@@ -1,0 +1,25 @@
+{
+  "name": "grade-system-mobile",
+  "version": "1.0.0",
+  "private": true,
+  "description": "نظام العلامات — تطبيق أندرويد. يغلّف الموقع الموجود في المجلد الأعلى بـ Capacitor؛ الشرح في MOBILE.md.",
+  "scripts": {
+    "sync": "node scripts/copy-web.js && npx cap sync android",
+    "android": "npm run sync && npx cap open android",
+    "icons": "npx @capacitor/assets generate --android --iconBackgroundColor \"#1f7a68\" --iconBackgroundColorDark \"#1f7a68\" --splashBackgroundColor \"#fafafa\" --splashBackgroundColorDark \"#09090b\""
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/core": "^8.6.0",
+    "@capacitor/filesystem": "^8.1.5",
+    "@capacitor/local-notifications": "^8.3.1",
+    "@capacitor/share": "^8.0.3",
+    "@capacitor/splash-screen": "^8.0.2",
+    "@capacitor/toast": "^8.0.1"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "^4.0.0",
+    "@capacitor/cli": "^8.6.0"
+  }
+}
